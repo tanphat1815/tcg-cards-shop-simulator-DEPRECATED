@@ -10,6 +10,8 @@ import { WORKERS } from '../../staff/config'
 import { EXPANSIONS_LOT_A } from '../../environment/config'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
 import { getPackVisuals, getBoxVisuals, hasCustomVisual } from '../config/assetRegistry'
+import { useCartStore } from '../store/cartStore'
+import AddToCartModal from './AddToCartModal.vue'
 
 const formatVND = (priceUsd: number) => {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(priceUsd * 25000)
@@ -20,6 +22,7 @@ const statsStore = useStatsStore()
 const inventoryStore = useInventoryStore()
 const staffStore = useStaffStore()
 const apiStore = useApiStore()
+const cartStore = useCartStore()
 const activeTab = ref<'STOCK' | 'FURNITURE' | 'STAFF' | 'RENO'>('STOCK')
 
 // Tabs config
@@ -67,16 +70,7 @@ watch(() => gameStore.showOnlineShop, (opened) => {
   }
 })
 
-const purchaseStock = (id: string, price: number) => {
-  if (statsStore.money < price) {
-    alert("Không đủ tiền mua hàng!")
-    return
-  }
-  const success = inventoryStore.buyStock(id, 1)
-  if (success) {
-    // Play cha-ching sound or visual feedback
-  }
-}
+
 
 const purchaseFurniture = (id: string, price: number) => {
   if (statsStore.money < price) {
@@ -114,7 +108,7 @@ const handleImageError = (id: string) => {
 
 <template>
   <div v-if="gameStore.showOnlineShop" class="absolute inset-0 z-[160] flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto p-4">
-    <div class="bg-white rounded-xl w-full max-w-5xl h-[80vh] flex flex-col shadow-2xl overflow-hidden font-sans">
+    <div class="bg-white rounded-xl w-[90vw] max-w-[1400px] h-[88vh] flex flex-col shadow-2xl overflow-hidden font-sans">
       
       <!-- Browser Header Toolbar -->
       <div class="bg-gray-200 border-b border-gray-300 px-4 py-3 flex items-center gap-3">
@@ -251,63 +245,50 @@ const handleImageError = (id: string) => {
                   </div>
 
                   <!-- Product Info -->
-                  <div class="p-4 flex flex-col flex-grow" :class="{ 'grayscale opacity-70': statsStore.level < item.requiredLevel }">
-                    <div class="flex justify-between items-start mb-1">
-                      <h3 class="font-bold text-slate-900 text-sm leading-tight group-hover:text-indigo-600 transition-colors">{{ item.name }}</h3>
-                    </div>
-                    <div class="flex items-center gap-2 mb-3">
-                      <span v-if="inventoryStore.shopInventory[item.id]" class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-emerald-100">
-                        In Stock: {{ inventoryStore.shopInventory[item.id] }}
-                      </span>
-                    </div>
+                  <div class="p-3 flex flex-col gap-2" :class="{ 'grayscale opacity-70': statsStore.level < item.requiredLevel }">
+                    <!-- Tên -->
+                    <p class="font-semibold text-slate-800 text-sm leading-tight line-clamp-2">{{ item.name }}</p>
 
-                    <!-- Pricing Info -->
-                    <div class="bg-slate-50 rounded-lg p-2.5 mb-4 border border-slate-100 space-y-1 relative group/pricing cursor-help">
-                      <div class="flex justify-between items-center">
-                        <span class="text-[10px] font-bold text-slate-400 uppercase">Input Price</span>
-                        <span class="text-sm font-black text-slate-700">${{ item.buyPrice }}</span>
-                      </div>
-                      <div class="flex justify-between items-center">
-                        <span class="text-[10px] font-bold text-slate-400 uppercase">Retail Goal</span>
-                        <span class="text-sm font-black text-indigo-600">${{ item.sellPrice }}</span>
-                      </div>
+                    <!-- Price row + tooltip -->
+                    <div class="flex items-center justify-between">
+                      <div class="relative group/price">
+                        <span class="text-indigo-700 font-black text-base">${{ item.buyPrice }}</span>
 
-                      <!-- Tooltip Chi tiết Định giá -->
-                      <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl opacity-0 invisible group-hover/pricing:opacity-100 group-hover/pricing:visible transition-all duration-200 z-50 pointer-events-none border border-slate-700">
-                        <div class="flex flex-col gap-1.5">
-                          <div class="flex justify-between">
-                            <span class="text-slate-400">Giá trị EV gốc:</span>
+                        <!-- Tooltip chi tiết -->
+                        <div class="absolute bottom-full left-0 mb-2 w-52 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl
+                                    opacity-0 invisible group-hover/price:opacity-100 group-hover/price:visible
+                                    transition-all duration-200 z-50 pointer-events-none border border-slate-700">
+                          <div class="flex justify-between mb-1">
+                            <span class="text-slate-400">EV gốc</span>
                             <span class="font-bold">${{ item.basePrice }}</span>
                           </div>
-                          <div class="flex justify-between">
-                            <span class="text-indigo-300">Độ hot/Hiếm:</span>
-                            <span class="font-bold text-indigo-400">+{{ item.rarityBonusPercent }}% (+${{ (item.buyPrice - (item.basePrice || 0)).toFixed(2) }})</span>
+                          <div class="flex justify-between mb-1">
+                            <span class="text-indigo-300">Bonus hiếm</span>
+                            <span class="font-bold text-indigo-400">+{{ item.rarityBonusPercent }}%</span>
                           </div>
-                          <div class="h-px bg-slate-700 my-1"></div>
-                          <div class="flex flex-col">
-                            <span class="text-slate-400 text-[9px] uppercase">Quy đổi nhập hàng:</span>
+                          <div class="border-t border-slate-700 mt-2 pt-2 flex justify-between">
+                            <span class="text-slate-400">≈ VNĐ</span>
                             <span class="font-bold text-emerald-400">{{ formatVND(item.buyPrice) }}</span>
                           </div>
-                          <div class="flex flex-col text-right mt-1">
-                            <span class="text-slate-400 text-[9px] uppercase">Bán dự kiến:</span>
-                            <span class="font-bold text-yellow-400">{{ formatVND(item.sellPrice) }}</span>
+                          <div class="flex justify-between">
+                            <span class="text-slate-400">Bán ra</span>
+                            <span class="font-bold text-yellow-400">≈ {{ formatVND(item.sellPrice) }}</span>
                           </div>
+                          <!-- Arrow tooltip -->
+                          <div class="absolute -bottom-1 left-4 w-2 h-2 bg-slate-800 rotate-45 border-r border-b border-slate-700"></div>
                         </div>
-                        <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45 border-r border-b border-slate-700"></div>
                       </div>
-                    </div>
 
-                    <EnhancedButton 
-                      variant="primary"
-                      size="sm"
-                      fullWidth
-                      :disabled="statsStore.level < item.requiredLevel"
-                      :icon="{ name: 'cart', position: 'left' }"
-                      @click="purchaseStock(item.id, item.buyPrice)"
-                      class="shadow-indigo-500/20"
-                    >
-                      BUY (${{ item.buyPrice }})
-                    </EnhancedButton>
+                      <!-- Nút Thêm: Icon + chữ -->
+                      <button
+                        :disabled="statsStore.level < item.requiredLevel"
+                        @click.stop="cartStore.openAddModal(item.id)"
+                        class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40
+                               text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        🛒 Thêm
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -563,6 +544,11 @@ const handleImageError = (id: string) => {
 
       </div>
 
+      <AddToCartModal
+        v-if="cartStore.addModalItemId"
+        :item-id="cartStore.addModalItemId"
+        @close="cartStore.closeAddModal()"
+      />
     </div>
   </div>
 </template>

@@ -1,3 +1,5 @@
+export type FurnitureRole = 'selling' | 'storage' | 'table' | 'cashier'
+
 export interface FurnitureItemInfo {
   id: string;
   name: string;
@@ -9,6 +11,8 @@ export interface FurnitureItemInfo {
   numTiers?: number;
   /** Sức chứa tối đa của mỗi tầng (Ví dụ: 16 cho kệ đơn, 32 cho kệ đôi) */
   slotsPerTier?: number;
+  /** Vai trò mặc định khi đặt furniture này */
+  role?: FurnitureRole;
 }
 
 export const FURNITURE_ITEMS: Record<string, FurnitureItemInfo> = {
@@ -18,9 +22,10 @@ export const FURNITURE_ITEMS: Record<string, FurnitureItemInfo> = {
     buyPrice: 300,
     requiredLevel: 3,
     capacityStr: '48 Slots (3x16)',
-    description: 'Kệ gỗ 1 mặt tiêu chuẩn. Có thể bày 48 hộp bài.',
+    description: 'Kệ gỗ 1 mặt tiêu chuẩn. NPCs có thể mua hàng từ kệ này.',
     numTiers: 3,
-    slotsPerTier: 16
+    slotsPerTier: 16,
+    role: 'selling'
   },
   'shelf_double': {
     id: 'shelf_double',
@@ -30,7 +35,19 @@ export const FURNITURE_ITEMS: Record<string, FurnitureItemInfo> = {
     capacityStr: '128 Slots (4x32)',
     description: 'Kệ trung tâm 2 mặt cao cấp. Sinh lời cực mạnh.',
     numTiers: 4,
-    slotsPerTier: 32
+    slotsPerTier: 32,
+    role: 'selling'
+  },
+  'storage_shelf': {
+    id: 'storage_shelf',
+    name: 'Storage Shelf',
+    buyPrice: 150,
+    requiredLevel: 1,
+    capacityStr: '12 Box Slots (3x4)',
+    description: 'Kệ kho đơn giản. Dùng để cất thùng hàng. NPCs KHÔNG mua từ đây.',
+    numTiers: 3,
+    slotsPerTier: 4,
+    role: 'storage'
   },
   'play_table': {
     id: 'play_table',
@@ -38,7 +55,8 @@ export const FURNITURE_ITEMS: Record<string, FurnitureItemInfo> = {
     buyPrice: 400,
     requiredLevel: 5,
     capacityStr: '2 Players',
-    description: 'Bàn chơi bài cho khách hàng. Tạo XP thụ động khi có người thi đấu.'
+    description: 'Bàn chơi bài cho khách hàng. Tạo XP thụ động khi có người thi đấu.',
+    role: 'table'
   },
   'cashier_desk': {
     id: 'cashier_desk',
@@ -46,6 +64,7 @@ export const FURNITURE_ITEMS: Record<string, FurnitureItemInfo> = {
     buyPrice: 500,
     requiredLevel: 1,
     capacityStr: '1 Staff',
-    description: 'Quầy thu ngân tiêu chuẩn. Nơi khách mang hàng tới thanh toán.'
+    description: 'Quầy thu ngân tiêu chuẩn. Nơi khách mang hàng tới thanh toán.',
+    role: 'cashier'
   }
 };

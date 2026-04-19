@@ -3,7 +3,7 @@ import { FURNITURE_ITEMS } from '../config'
 import { useStatsStore } from '../../stats/store/statsStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { useStaffStore } from '../../staff/store/staffStore'
-import type { ShelfData, PlayTableData, CashierData, ShelfTier } from '../types'
+import type { ShelfData, PlayTableData, CashierData, ShelfTier, ShelfRole } from '../types'
 
 /**
  * Tạo một tầng kệ hàng (Tier) trống.
@@ -12,6 +12,7 @@ const createEmptyTier = (): ShelfTier => ({ itemId: null, slots: [], maxSlots: 0
 
 /**
  * Khởi tạo dữ liệu cho một Kệ hàng (Shelf) mới.
+ * Hỗ trợ phân loại role: 'selling' hoặc 'storage'.
  */
 const createShelf = (id: string, furnitureId: string, x: number, y: number): ShelfData => {
   const config = FURNITURE_ITEMS[furnitureId]
@@ -22,7 +23,8 @@ const createShelf = (id: string, furnitureId: string, x: number, y: number): She
     furnitureId,
     x,
     y,
-    tiers: Array.from({ length: numTiers }, () => createEmptyTier())
+    tiers: Array.from({ length: numTiers }, () => createEmptyTier()),
+    role: (config?.role === 'storage' ? 'storage' : 'selling') as ShelfRole
   }
 }
 
@@ -87,7 +89,10 @@ export const useFurnitureStore = defineStore('furniture', {
       if (!shelf) return
       const itemData = inventoryStore.shopItems[itemId]
       if (!itemData) return
-      if (inventoryStore.shopInventory[itemId] <= 0) return
+      
+      // Fix NaN: Đảm bảo inventory không undefined
+      const currentStock = inventoryStore.shopInventory[itemId] ?? 0
+      if (currentStock <= 0) return
 
       const tier = shelf.tiers[tierIndex]
       const isBox = itemData.type === 'box'
@@ -106,7 +111,7 @@ export const useFurnitureStore = defineStore('furniture', {
       if (tier.slots.length >= tier.maxSlots) return
 
       tier.slots.push(itemId)
-      inventoryStore.shopInventory[itemId]--
+      inventoryStore.shopInventory[itemId] = (inventoryStore.shopInventory[itemId] ?? 1) - 1
       if (inventoryStore.shopInventory[itemId] === 0) delete inventoryStore.shopInventory[itemId]
     },
 
@@ -141,8 +146,45 @@ export const useFurnitureStore = defineStore('furniture', {
       for (let i = 0; i < toAdd; i++) {
         tier.slots.push(itemId)
       }
-      inventoryStore.shopInventory[itemId] -= toAdd
+      
+      // Fix NaN: Gán lại giá trị an toàn
+      inventoryStore.shopInventory[itemId] = (inventoryStore.shopInventory[itemId] ?? toAdd) - toAdd
       if (inventoryStore.shopInventory[itemId] <= 0) delete inventoryStore.shopInventory[itemId]
+    },
+
+    /**
+     * Đổ hàng trực tiếp từ Thùng hàng đang cầm lên kệ (không đi qua inventory shop).
+     * Dùng cho workflow manual của Kệ Bán Hàng.
+     */
+    fillTierFromItem(shelfId: string, itemId: string, tierIndex: number, quantity: number) {
+      const inventoryStore = useInventoryStore()
+      const shelf = this.placedShelves[shelfId]
+      if (!shelf) return
+      const itemData = inventoryStore.shopItems[itemId]
+      if (!itemData) return
+
+      const tier = shelf.tiers[tierIndex]
+      const isBox = itemData.type === 'box'
+      const shelfConfig = FURNITURE_ITEMS[shelf.furnitureId]
+      const slotsPerTier = shelfConfig?.slotsPerTier || 16
+      const maxSlots = isBox ? Math.floor(slotsPerTier / 4) : slotsPerTier
+
+      // Thiết lập tier nếu trống
+      if (tier.itemId === null) {
+        tier.itemId = itemId
+        tier.maxSlots = maxSlots
+        tier.slots = []
+      } else if (tier.itemId !== itemId) {
+        return // Không thể trộn hàng
+      }
+
+      const spaceLeft = tier.maxSlots - tier.slots.length
+      const toAdd = Math.min(spaceLeft, quantity)
+
+      for (let i = 0; i < toAdd; i++) {
+        tier.slots.push(itemId)
+      }
+      // KHÔNG trừ inventoryStore.shopInventory vì hàng từ thùng
     },
 
     /**
@@ -170,11 +212,40 @@ export const useFurnitureStore = defineStore('furniture', {
     },
 
     /**
+     * Lấy 1 món đồ từ kệ trả về kho hàng.
+     */
+    takeItemFromTier(shelfId: string, tierIndex: number) {
+      const inventoryStore = useInventoryStore()
+      const shelf = this.placedShelves[shelfId]
+      if (!shelf) return
+
+      const tier = shelf.tiers[tierIndex]
+      if (!tier.itemId || tier.slots.length === 0) return
+
+      const itemId = tier.itemId
+      tier.slots.pop()
+
+      // Trả lại vào kho
+      if (!inventoryStore.shopInventory[itemId]) inventoryStore.shopInventory[itemId] = 0
+      inventoryStore.shopInventory[itemId]++
+
+      // Nếu tầng trống hẳn thì xóa luôn itemId
+      if (tier.slots.length === 0) {
+        tier.itemId = null
+        tier.maxSlots = 0
+      }
+    },
+
+    /**
      * Logic NPC lấy sản phẩm.
+     * NPCs chỉ mua từ kệ bán hàng (selling).
      */
     npcTakeItemFromSlot(shelfId: string) {
       const shelf = this.placedShelves[shelfId]
       if (!shelf) return null
+
+      // NPCs chỉ mua từ kệ bán hàng (selling)
+      if (shelf.role === 'storage') return null
 
       const filledTiers = shelf.tiers.map((t, idx) => ({ t, idx })).filter(x => x.t.itemId && x.t.slots.length > 0)
       if (filledTiers.length === 0) return null
@@ -361,6 +432,9 @@ export const useFurnitureStore = defineStore('furniture', {
        }
     },
 
+    /**
+     * Khôi phục thiết bị từ bản lưu.
+     */
     loadFurniture(parsed: any) {
       if (parsed.purchasedFurniture) this.purchasedFurniture = parsed.purchasedFurniture
       if (parsed.placedTables) this.placedTables = parsed.placedTables
@@ -376,6 +450,11 @@ export const useFurnitureStore = defineStore('furniture', {
 
       if (parsed.placedShelves) {
         this.placedShelves = parsed.placedShelves
+        Object.values(this.placedShelves).forEach((shelf: any) => {
+          if (!shelf.role) {
+            shelf.role = 'selling';
+          }
+        });
       }
 
       const migratePos = (items: Record<string, any>) => {

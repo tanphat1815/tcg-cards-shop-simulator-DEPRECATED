@@ -3,6 +3,7 @@ import { computed, watch, ref } from 'vue'
 import { useGameStore } from '../store/gameStore'
 import { useBattleStore } from '../../battle/store/battleStore'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
+import CartButton from '../../inventory/components/CartButton.vue'
 
 /**
  * Facade store for managing game state
@@ -187,6 +188,7 @@ const isInventoryMinimized = ref(false)
             >
               ⚔️ BATTLE
             </EnhancedButton>
+            <CartButton />
           </div>
         </div>
         <div v-else key="minimized" class="pointer-events-auto flex items-center gap-2">

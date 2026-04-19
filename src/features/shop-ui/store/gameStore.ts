@@ -7,6 +7,7 @@ import { useUIStore } from './uiStore'
 import { useStaffStore } from '../../staff/store/staffStore'
 import { useApiStore } from '../../inventory/store/apiStore'
 import { useGymStore } from '../../gym/store/gymStore'
+import { useCartStore } from '../../inventory/store/cartStore'
 
 /**
  * GameStore (Facade Pattern) - Trung tâm điều phối dữ liệu của toàn bộ ứng dụng.
@@ -81,6 +82,9 @@ export const useGameStore = defineStore('game', {
     activeGym: () => useGymStore().activeGym,
     isPlayerInTown: () => useGymStore().isPlayerInTown,
 
+    // === Cart & Orders (Modules: cartStore) ===
+    cartItemCount: () => useCartStore().totalItems,
+
     // === Derived Stats ===
     requiredExp: () => useStatsStore().requiredExp,
   },
@@ -129,7 +133,11 @@ export const useGameStore = defineStore('game', {
         const shelfId = useUIStore().activeShelfId
         if (shelfId) useFurnitureStore().fillTier(shelfId, itemId, tierIndex) 
     },
+    fillTierFromItem(shelfId: string, itemId: string, tierIndex: number, quantity: number) {
+        useFurnitureStore().fillTierFromItem(shelfId, itemId, tierIndex, quantity)
+    },
     clearTier(shelfId: string, tierIndex: number) { useFurnitureStore().clearTier(shelfId, tierIndex) },
+    takeItemFromTier(shelfId: string, tierIndex: number) { useFurnitureStore().takeItemFromTier(shelfId, tierIndex) },
     clearEntireShelf() { 
         const shelfId = useUIStore().activeShelfId
         if (shelfId) useFurnitureStore().clearEntireShelf(shelfId) 

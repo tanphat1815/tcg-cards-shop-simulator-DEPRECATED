@@ -14,6 +14,7 @@ import { FurnitureManager } from '../features/furniture/managers/FurnitureManage
 import { NPCManager } from '../features/customer/managers/NPCManager'
 import { StaffManager } from '../features/staff/managers/StaffManager'
 import { TownManager } from '../features/gym/managers/TownManager'
+import { DeliveryManager } from '../features/environment/managers/DeliveryManager'
 import { useGymStore } from '../features/gym/store/gymStore'
 import gymBuildingImg from '../assets/images/gym_building.svg'
 
@@ -40,6 +41,7 @@ export default class MainScene extends Phaser.Scene {
   public furnitureManager!: FurnitureManager
   public npcManager!: NPCManager
   public staffManager!: StaffManager
+  public deliveryManager!: DeliveryManager
 
   // Trạng thái điều khiển và hiển thị tạm thời (Ghost) khi xây dựng
   private keyE!: Phaser.Input.Keyboard.Key
@@ -118,6 +120,7 @@ export default class MainScene extends Phaser.Scene {
     this.furnitureManager = new FurnitureManager(this)
     this.npcManager = new NPCManager(this, this.environmentManager)
     this.staffManager = new StaffManager(this)
+    this.deliveryManager = new DeliveryManager(this, this.environmentManager)
 
     // 5. Khởi tạo Gym Leaders (chỉ lần đầu) - TRƯỚC khi init Town để tránh Race Condition
     const gymStore = useGymStore()
@@ -386,6 +389,7 @@ export default class MainScene extends Phaser.Scene {
       this.npcManager.update()
       this.furnitureManager.updateFurnitureVisuals()
       this.staffManager.update(time)
+      this.deliveryManager.update(time, this.player.x, this.player.y)
 
       // 3. Xử lý nhân viên hỗ trợ thanh toán (Auto Checkout)
       this.handleAutoCheckout(time)
@@ -525,7 +529,16 @@ export default class MainScene extends Phaser.Scene {
       return
     }
 
-    // Ưu tiên 1: Thanh toán tại quầy
+    // Ưu tiên 1: Giao hàng lên kệ (nếu đang cầm box)
+    if (this.deliveryManager) {
+      const nearestShelfForDelivery = this.getNearestFromGroup(this.furnitureManager.shelvesGroup, 70)
+      if (nearestShelfForDelivery) {
+        const handled = this.deliveryManager.handleShelfInteraction(nearestShelfForDelivery.getData('id'))
+        if (handled) return
+      }
+    }
+
+    // Ưu tiên 2: Thanh toán tại quầy
     let nearestCashier = this.getNearestFromGroup(this.furnitureManager.cashierGroup, 80)
     if (nearestCashier && store.waitingCustomers > 0) {
       store.serveCustomer()

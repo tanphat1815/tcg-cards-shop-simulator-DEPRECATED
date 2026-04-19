@@ -1,3 +1,5 @@
+export type ShelfRole = 'selling' | 'storage'
+
 export interface ShelfTier {
   itemId: string | null;  // Which item fills this tier (null = empty, all slots same type)
   slots: (string | null)[];  // Each slot: itemId or null
@@ -10,6 +12,8 @@ export interface ShelfData {
   x: number;
   y: number;
   tiers: ShelfTier[]; // 3 tiers
+  /** Vai trò của kệ: 'selling' = bán hàng + NPCs mua được, 'storage' = kho, NPCs KHÔNG mua */
+  role: ShelfRole;
 }
 
 export interface PlayTableData {
