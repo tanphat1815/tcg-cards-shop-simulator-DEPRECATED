@@ -187,10 +187,12 @@ const formatVND = (priceUsd: number) => {
                 <div class="stat-col">
                   <h3 class="stat-title">Retreat Cost</h3>
                   <div class="stat-content energy-costs">
-                    <div v-for="n in (card.retreatCost || 0)" :key="n" 
-                         class="energy-mini-icon icon-colorless">
-                    </div>
-                    <span v-if="!card.retreatCost" class="stat-none">None</span>
+                    <template v-if="card.retreatCost && card.retreatCost > 0">
+                      <div v-for="n in Number(card.retreatCost)" :key="n" 
+                           class="energy-mini-icon icon-colorless">
+                      </div>
+                    </template>
+                    <span v-else class="stat-none">None</span>
                   </div>
                 </div>
               </div>

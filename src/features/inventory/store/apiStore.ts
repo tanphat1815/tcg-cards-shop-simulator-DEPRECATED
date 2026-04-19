@@ -57,10 +57,12 @@ const processCardRow = (row: any) => {
   if (!row) return row
   const card = { ...row }
   
-  // Chuẩn hóa retreatCost (đôi khi SQLite hoặc source data trả về retreat hoặc retreatcost)
+  // FIX: Chuẩn hóa retreatCost từ nhiều key có thể xuất hiện (SQLite có thể trả về key khác nhau)
   if (card.retreatCost === undefined || card.retreatCost === null) {
     card.retreatCost = row.retreat ?? row.retreat_cost ?? row.retreatcost ?? 0
   }
+  // Đảm bảo là number, không phải string để v-for hoạt động đúng
+  card.retreatCost = parseInt(String(card.retreatCost ?? 0), 10) || 0
 
   // Parse các trường JSON thô từ SQLite
   const jsonFields = ['types', 'attacks', 'abilities', 'weaknesses', 'resistances', 'pricing']

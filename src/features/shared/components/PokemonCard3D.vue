@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * POKEMON CARD 3D COMPONENT
- * - disableTilt prop: Tắt hiệu ứng 3D/mousemove để bảo vệ FPS trong BattleArena
- * - isHit prop: Trigger animation shake + đỏ khi nhận sát thương
+ * POKEMON CARD 3D COMPONENT (SIMEYDOTME COMPLIANT)
+ * - Đảm bảo cấu trúc DOM 100% chuẩn thư viện.
+ * - Sử dụng CSS variables để điều khiển hiệu ứng.
  */
 import { ref, computed } from 'vue';
 import { mapRarityToCSS } from '../utils/cardRarityMapper';
@@ -13,12 +13,14 @@ interface Props {
   width?: string | number;
   disableTilt?: boolean;
   isHit?: boolean;
+  isReverse?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   width: '320px',
   disableTilt: false,
   isHit: false,
+  isReverse: false,
 });
 
 const emit = defineEmits<{
@@ -28,18 +30,14 @@ const emit = defineEmits<{
 
 const cardElement = ref<HTMLElement | null>(null);
 const isLoaded = ref(false);
+const isInteracting = ref(false);
 
-const rarityClass = computed(() => mapRarityToCSS(props.card?.rarity));
-const imageSrc = computed(() => {
-  if (props.card?.image) {
-    return `${props.card.image}/high.webp`;
-  }
-  return '';
-});
+const rarityClass = computed(() => mapRarityToCSS(props.card?.rarity, props.isReverse));
+const imageSrc = computed(() => props.card?.image ? `${props.card.image}/high.webp` : '');
 
 const handleMouseMove = (e: MouseEvent) => {
-  // Nếu disableTilt = true → bỏ qua hoàn toàn để bảo vệ FPS
   if (props.disableTilt || !cardElement.value) return;
+  isInteracting.value = true;
 
   const rect = cardElement.value.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -50,7 +48,6 @@ const handleMouseMove = (e: MouseEvent) => {
 
   const pl = px / 100;
   const pt = py / 100;
-
   const p_xc = Math.abs(px - 50);
   const p_yc = Math.abs(py - 50);
   const pc = Math.sqrt(Math.pow(p_xc, 2) + Math.pow(p_yc, 2)) / 50;
@@ -71,7 +68,8 @@ const handleMouseMove = (e: MouseEvent) => {
 };
 
 const handleMouseLeave = () => {
-  if (props.disableTilt || !cardElement.value) return;
+  isInteracting.value = false;
+  if (!cardElement.value) return;
   const st = cardElement.value.style;
   st.setProperty('--pointer-x', '50%');
   st.setProperty('--pointer-y', '50%');
@@ -80,14 +78,8 @@ const handleMouseLeave = () => {
   st.setProperty('--pointer-from-center', '0');
 };
 
-function onImgLoad() {
-  isLoaded.value = true;
-}
-
-function handleClick() {
-  emit('click', props.card);
-}
-
+function onImgLoad() { isLoaded.value = true; }
+function handleClick() { emit('click', props.card); }
 function handleContextMenu(e: MouseEvent) {
   e.preventDefault();
   emit('contextmenu', props.card);
@@ -102,9 +94,13 @@ function handleContextMenu(e: MouseEvent) {
       rarityClass,
       { 'is-back': isBack },
       { 'is-hit': isHit },
-      { 'no-tilt': disableTilt }
+      { 'no-tilt': disableTilt },
+      { 'active': isInteracting }
     ]"
-    :style="{ width: typeof props.width === 'number' ? props.width + 'px' : props.width }"
+    :style="{ 
+      width: typeof props.width === 'number' ? props.width + 'px' : props.width,
+      '--card-opacity': isBack || disableTilt ? 0 : 1
+    }"
     :data-rarity="rarityClass"
     @mousemove="handleMouseMove"
     @mouseleave="handleMouseLeave"
@@ -114,20 +110,16 @@ function handleContextMenu(e: MouseEvent) {
     <div class="card__translater">
       <div class="card__rotator">
         <div class="card__front">
-          <img :src="imageSrc" @load="onImgLoad" alt="Pokemon Card Front" loading="lazy" />
-          <!-- Shine & glare chỉ render khi KHÔNG disableTilt để tiết kiệm GPU -->
-          <template v-if="!disableTilt">
-            <div class="card__shine"></div>
-            <div class="card__glare"></div>
-          </template>
-          <!-- Hit overlay: đỏ flash khi nhận sát thương -->
+          <img :src="imageSrc" @load="onImgLoad" alt="Card Front" loading="lazy" />
+          <!-- Shine & Glare: BẮT BUỘC có trong DOM để thư viện hoạt động -->
+          <div class="card__shine"></div>
+          <div class="card__glare"></div>
+          
           <div v-if="isHit" class="card__hit-overlay"></div>
-          <div v-if="!isLoaded" class="card__loading">
-            <div class="spinner"></div>
-          </div>
+          <div v-if="!isLoaded" class="card__loading"><div class="spinner"></div></div>
         </div>
         <div class="card__back">
-          <img src="/assets/cards/back.webp" alt="Pokemon Card Back" loading="lazy" />
+          <img src="/assets/cards/back.webp" alt="Card Back" loading="lazy" />
         </div>
       </div>
     </div>
@@ -147,49 +139,68 @@ function handleContextMenu(e: MouseEvent) {
   max-width: 100%;
   aspect-ratio: 0.714;
   position: relative;
-  transition: transform 0.1s ease;
   user-select: none;
   cursor: pointer;
+  transform-style: preserve-3d;
 }
 
-/* Khi disableTilt: tắt toàn bộ 3D transform, giữ card phẳng */
-.card.no-tilt .card__rotator {
-  transform: none !important;
+/* Card Rotator: Xử lý lật mặt cơ bản bằng transition */
+.card__rotator {
+  transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transform-style: preserve-3d;
 }
 
 .card.is-back .card__rotator {
+  transform: rotateY(180deg) !important;
+}
+
+/* Ẩn mặt phía sau khi lật */
+.card__front, .card__back {
+  backface-visibility: hidden;
+  position: absolute;
+  inset: 0;
+}
+
+.card__front {
+  transform: rotateY(0deg);
+  z-index: 2;
+}
+
+.card__back {
   transform: rotateY(180deg);
+  z-index: 1;
 }
 
-/* Hit animation: shake + filter đỏ */
-.card.is-hit {
-  animation: card-shake 0.4s ease;
+/* Hỗ trợ tắt Tilt */
+.card.no-tilt .card__shine,
+.card.no-tilt .card__glare {
+  display: none;
 }
 
+.card.no-tilt .card__rotator {
+  transform: none !important;
+  transition: none;
+}
+
+.card__shine, .card__glare {
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  clip-path: none !important;
+}
+.card {
+  --mask: none !important;
+}
+
+/* Hit overlay */
 .card__hit-overlay {
   position: absolute;
   inset: 0;
   background: rgba(239, 68, 68, 0.45);
-  border-radius: 8px;
-  pointer-events: none;
-  animation: hit-flash 0.4s ease forwards;
   z-index: 20;
+  animation: hit-flash 0.4s ease forwards;
 }
 
-@keyframes card-shake {
-  0%   { transform: translateX(0); }
-  15%  { transform: translateX(-6px) rotate(-2deg); }
-  30%  { transform: translateX(6px) rotate(2deg); }
-  45%  { transform: translateX(-4px) rotate(-1deg); }
-  60%  { transform: translateX(4px) rotate(1deg); }
-  75%  { transform: translateX(-2px); }
-  100% { transform: translateX(0); }
-}
-
-@keyframes hit-flash {
-  0%   { opacity: 1; }
-  100% { opacity: 0; }
-}
+@keyframes hit-flash { 0% { opacity: 1; } 100% { opacity: 0; } }
 
 .card__loading {
   position: absolute;
@@ -202,22 +213,17 @@ function handleContextMenu(e: MouseEvent) {
 }
 
 .spinner {
-  width: 40px;
-  height: 40px;
+  width: 40px; height: 40px;
   border: 4px solid rgba(255,255,255,0.1);
   border-left-color: white;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .card__front img, .card__back img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
 }
 </style>

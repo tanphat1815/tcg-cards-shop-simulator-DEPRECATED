@@ -1,176 +1,126 @@
 <script setup lang="ts">
 /**
- * PackOpeningOverlay.vue — Giao diện Gacha mở pack thẻ bài
- *
- * KIẾN TRÚC:
- * - Store (inventoryStore) xử lý: Gọi API, sắp xếp thẻ theo Rarity, lưu vào binder
- * - Component này xử lý: UI state, animations, render
+ * PackOpeningOverlay.vue — Giao diện Gacha mở pack thẻ bài (FINAL UPGRADE)
  *
  * UI FLOW:
- * Phase 1 (packPhase = 'pack_visible'): Hiển thị ảnh Pack lớn ở giữa
- *   → Click vào Pack → animation rung → chuyển Phase 2
- * Phase 2 (packPhase = 'cards_visible'): Hiển thị 6 lá bài đang úp mặt
- *   → Click từng lá hoặc dùng Auto/Reveal All để lật
- *   → Khi đủ 6 lá lật → hiện nút Collect
+ * Phase 1 (packPhase = 'pack_visible'): Hiển thị vỏ Pack (dynamic asset).
+ *   → Click vào Pack → rung và xé → chuyển Phase 2.
+ * Phase 2 (packPhase = 'cards_visible'): Hiển thị 6 lá bài đang úp mặt.
+ *   → Click từng lá để lật (Instant flip + Multi-spin for Rare+).
+ *   → Khi đủ 6 lá lật → hiện nút Collect.
  */
 import { ref, computed, watch, onUnmounted, reactive } from 'vue'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { getPackVisuals } from '../../inventory/config/assetRegistry'
-import { isHighRarity } from '../../inventory/config/rarityRegistry'
 import PokemonCard3D from '../../shared/components/PokemonCard3D.vue'
 import { useCardDetailStore } from '../../inventory/store/cardDetailStore'
+import { getRarityConfig } from '../../inventory/config/rarityAnimations'
 
 const inventoryStore = useInventoryStore()
 const detailStore = useCardDetailStore()
 
-// ─── UI-only state (không đưa vào Store) ───────────────────────────────────
-/** Mảng boolean: flipped[i] = true nếu lá bài thứ i đã lật */
+// ─── UI-only state ──────────────────────────────────────────────────────────
 const flipped = ref<boolean[]>([])
-
-/** Đang chạy animation rung Pack */
 const isPackShaking = ref(false)
-
-/** Đang chạy Auto-Reveal */
+const revealClasses = ref<string[]>([])
 const isAutoRevealing = ref(false)
-
-/** Timer ID của Auto-Reveal để có thể cancel */
 let autoRevealTimer: ReturnType<typeof setInterval> | null = null
 
-/** Theo dõi trạng thái đã tải xong ảnh của từng card: imageLoaded[index] = true */
-const imageLoaded = ref<boolean[]>([])
-
-// Fallback tracking for custom assets
+// Fallback tracking for assets
 const assetErrors = reactive({
   pack: false
 })
 const handlePackError = () => { assetErrors.pack = true }
 
 // ─── Computed ───────────────────────────────────────────────────────────────
-
-/** Danh sách thẻ bài hiện tại (đã được Store sắp xếp: thẻ hiếm nhất ở index 5) */
 const cards = computed(() => inventoryStore.currentPack)
-
-/** Phase hiện tại của UI */
 const phase = computed(() => inventoryStore.packPhase)
+const isVisible = computed(() => inventoryStore.isOpeningPack)
 
-/** Tất cả thẻ đã được lật chưa */
 const allFlipped = computed(() => {
-  const count = cards.value.length
-  if (count === 0) return false
-  // Không dùng .every vì mảng thưa có thể gây lỗi logic
-  let activeCount = 0
-  for (let i = 0; i < count; i++) {
-    if (flipped.value[i] === true) activeCount++
-  }
-  return activeCount === count
+  return flipped.value.length > 0 && flipped.value.every(f => f)
 })
 
-/** Đang hiển thị overlay không */
-const isVisible = computed(() => inventoryStore.isOpeningPack)
+// Dynamic Pack Image
+const packImageUrl = computed(() => {
+  const setId = inventoryStore.currentPackSetId
+  if (!setId || assetErrors.pack) return null
+  return getPackVisuals(setId).front
+})
 
 // ─── Watch: Reset state khi pack mới được mở ────────────────────────────────
 watch(
-  () => [inventoryStore.isOpeningPack, cards.value.length] as [boolean, number],
+  () => [isVisible.value, cards.value.length] as [boolean, number],
   ([isOpening, count]) => {
     if (isOpening && count > 0) {
-      // Khởi tạo mảng với giá trị false cụ thể để tránh mảng thưa
       flipped.value = new Array(count).fill(false)
-      imageLoaded.value = new Array(count).fill(false)
+      revealClasses.value = new Array(count).fill('')
       isPackShaking.value = false
       stopAutoReveal()
-    } else if (isOpening && count === 0) {
-      // Trường hợp đang mở nhưng chưa có data
-      flipped.value = []
-      imageLoaded.value = []
     }
   },
   { immediate: true }
 )
 
-// ─── PHASE 1: Xử lý click vào Pack ─────────────────────────────────────────
-
-/**
- * Người dùng click vào ảnh Pack:
- * Chuyển sang Phase 2 ngay lập tức sau hiệu ứng rung, không đợi tải ảnh.
- */
+// ─── PHASE 1: Pack Interaction ─────────────────────────────────────────────
 async function handlePackClick() {
   if (isPackShaking.value || phase.value !== 'pack_visible') return
 
-  // 1. Chuyển trạng thái rung và âm thanh ngay lập tức
   isPackShaking.value = true
   playTearSound()
 
-  // 2. Chuyển Phase sau 600ms (cho người dùng thấy animation rung)
-  // KHÔNG còn await waitForData() hay preloadCardImages() ở đây nữa
+  // Chuyển Phase sau 600ms
   setTimeout(() => {
     isPackShaking.value = false
     inventoryStore.revealCards()
-    
-    // Đảm bảo mảng state loaded khớp với số lượng bài thực tế
-    if (imageLoaded.value.length !== cards.value.length) {
-      imageLoaded.value = new Array(cards.value.length).fill(false)
-    }
   }, 600)
 }
 
-// ─── PHASE 2: Xử lý lật từng thẻ ──────────────────────────────────────────
-
-/**
- * Lật một lá bài cụ thể khi người dùng click
- */
+// ─── PHASE 2: Card Interaction ─────────────────────────────────────────────
 function flipCard(index: number) {
   if (flipped.value[index] || phase.value !== 'cards_visible') return
-  flipped.value[index] = true
-  playFlipSound()
-
+  
   const card = cards.value[index]
-  if (isHighRarity(card)) {
-    playRareSound()
+  const config = getRarityConfig(card?.rarity)
+  
+  // 1. Set class cho wrapper để trigger CSS spin animation (Rare+)
+  revealClasses.value[index] = config.flipClass
+  
+  // 2. Set trạng thái đã lật NGAY LẬP TỨC để UX mượt
+  flipped.value[index] = true
+  
+  // 3. Âm thanh
+  playFlipSound()
+  if (config.tier !== 'common' && config.tier !== 'uncommon') {
+    setTimeout(() => playRareSound(), 200)
   }
 }
 
-/**
- * Lật tất cả thẻ cùng lúc (nút Reveal All)
- */
 function revealAll() {
   if (phase.value !== 'cards_visible') return
   stopAutoReveal()
-  flipped.value = new Array(cards.value.length).fill(true)
+  
+  cards.value.forEach((card, index) => {
+    if (!flipped.value[index]) {
+      const config = getRarityConfig(card?.rarity)
+      revealClasses.value[index] = config.flipClass
+      flipped.value[index] = true
+    }
+  })
   playFlipSound()
-
-  // Kiểm tra xem có thẻ hiếm không để phát sound đặc biệt
-  const hasRare = cards.value.some(isHighRarity)
-  if (hasRare) {
-    setTimeout(() => playRareSound(), 300)
-  }
 }
 
-/**
- * Lật lần lượt từng thẻ, mỗi thẻ cách nhau 0.5 giây (nút Auto-Reveal)
- */
 function startAutoReveal() {
   if (isAutoRevealing.value || phase.value !== 'cards_visible') return
   isAutoRevealing.value = true
 
-  let currentIndex = flipped.value.findIndex(f => !f)
-  if (currentIndex === -1) {
-    isAutoRevealing.value = false
-    return
-  }
-
   autoRevealTimer = setInterval(() => {
-    currentIndex = flipped.value.findIndex(f => !f)
-    if (currentIndex === -1) {
+    const nextIndex = flipped.value.findIndex(f => !f)
+    if (nextIndex === -1) {
       stopAutoReveal()
       return
     }
-    flipped.value[currentIndex] = true
-    playFlipSound()
-
-    const card = cards.value[currentIndex]
-    if (isHighRarity(card)) {
-      setTimeout(() => playRareSound(), 100)
-    }
+    flipCard(nextIndex)
   }, 500)
 }
 
@@ -182,24 +132,17 @@ function stopAutoReveal() {
   isAutoRevealing.value = false
 }
 
-/**
- * Đóng overlay và lưu thẻ vào binder (nút Collect)
- */
 function handleCollect() {
   stopAutoReveal()
   inventoryStore.closePackOpening()
 }
 
-// ─── Audio System ───────────────────────────────────────────────────────────
-
-// ─── Audio System ───────────────────────────────────────────────────────────
+// ─── Audio & Pricing Helpers ───────────────────────────────────────────────
 function createAudioContext(): AudioContext | null {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
     return AudioCtx ? new AudioCtx() : null
-  } catch {
-    return null
-  }
+  } catch { return null }
 }
 
 function playTearSound() {
@@ -218,12 +161,9 @@ function playTearSound() {
     const gain = ctx.createGain()
     gain.gain.setValueAtTime(0.4, ctx.currentTime)
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35)
-    source.connect(filter)
-    filter.connect(gain)
-    gain.connect(ctx.destination)
-    source.start()
-    source.stop(ctx.currentTime + 0.4)
-  } catch { /* ignore */ }
+    source.connect(filter); filter.connect(gain); gain.connect(ctx.destination)
+    source.start(); source.stop(ctx.currentTime + 0.4)
+  } catch {}
 }
 
 function playFlipSound() {
@@ -237,11 +177,9 @@ function playFlipSound() {
     const gain = ctx.createGain()
     gain.gain.setValueAtTime(0.08, ctx.currentTime)
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1)
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.start()
-    osc.stop(ctx.currentTime + 0.1)
-  } catch { /* ignore */ }
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.start(); osc.stop(ctx.currentTime + 0.1)
+  } catch {}
 }
 
 function playRareSound() {
@@ -256,115 +194,71 @@ function playRareSound() {
     const gain = ctx.createGain()
     gain.gain.setValueAtTime(0.18, ctx.currentTime)
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.9)
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.start()
-    osc.stop(ctx.currentTime + 0.9)
-  } catch { /* ignore */ }
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.start(); osc.stop(ctx.currentTime + 0.9)
+  } catch {}
 }
 
-// Helpers for rendering
 function getMarketPrice(card: any): string {
   const price = card?.pricing?.tcgplayer?.normal?.marketPrice ?? card?.pricing?.cardmarket?.avg ?? 'N/A';
   return price !== 'N/A' ? `$${Number(price).toFixed(2)}` : 'N/A';
 }
 
 function getRawPrice(card: any): number {
-  if (!card?.pricing) return 0
-  const tcg = card.pricing.tcgplayer
-  if (tcg) {
-    const categories = ['normal', 'holofoil', 'reverse', 'reverse-holofoil', 'unlimited', 'unlimited-holofoil']
-    for (const cat of categories) {
-      if (tcg[cat]?.marketPrice) return Number(tcg[cat].marketPrice)
-      if (tcg[cat]?.midPrice) return Number(tcg[cat].midPrice)
-    }
-  }
-  const cm = card.pricing.cardmarket
-  if (cm) {
-    const val = cm.avg || cm.trend || cm.avg1 || cm.avg7
-    if (val) return Number(val)
-  }
-  return 0
+  const price = card?.pricing?.tcgplayer?.normal?.marketPrice ?? card?.pricing?.cardmarket?.avg ?? 0;
+  return Number(price);
 }
 
 const formatVND = (priceUsd: number) => {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(priceUsd * 25000)
 }
 
-// ─── Cleanup ─────────────────────────────────────────────────────────────────
-onUnmounted(() => {
-  stopAutoReveal()
-})
+onUnmounted(() => stopAutoReveal())
 </script>
 
 <template>
-  <!-- ═══════════════════════════════════════════════════════════════
-       OVERLAY WRAPPER — Backdrop toàn màn hình
-  ═══════════════════════════════════════════════════════════════ -->
   <Transition name="overlay-fade">
-    <div
-      v-if="isVisible"
-      class="pack-overlay"
-    >
-
-      <!-- ═══════════════════════════════════════════════════════════
-           PHASE SWITCHER — Đảm bảo chuyển phase mượt mà không bị lệch
-      ═══════════════════════════════════════════════════════════ -->
+    <div v-if="isVisible" class="pack-overlay">
       <Transition name="phase-switch" mode="out-in">
         
-        <!-- PHASE 1: Hiển thị ảnh Pack lớn -->
-        <div
-          v-if="phase === 'pack_visible'"
-          key="pack"
-          class="pack-phase"
-        >
+        <!-- PHASE 1: PACK -->
+        <div v-if="phase === 'pack_visible'" class="pack-phase" key="pack">
           <h2 class="pack-title">Mở Pack Thẻ Bài!</h2>
-          <p class="pack-subtitle">Click vào pack để xé</p>
-
-          <div
-            class="pack-wrapper"
-            :class="{ 'pack-shaking': isPackShaking }"
-            @click="handlePackClick"
-          >
+          <div class="pack-wrapper" :class="{ 'pack-shaking': isPackShaking }" @click="handlePackClick">
             <div class="pack-glow-ring ring-1"></div>
-            <div class="pack-glow-ring ring-2"></div>
-
             <div class="pack-image-container">
-              <!-- Real Pack Image -->
-              <img 
-                v-if="inventoryStore.currentPackSetId && !assetErrors.pack"
-                :src="getPackVisuals(inventoryStore.currentPackSetId).front"
-                class="pack-front-img"
-                @error="handlePackError"
-              />
+              <img v-if="packImageUrl" :src="packImageUrl" class="pack-front-img" @error="handlePackError" />
               <div v-else class="pack-emoji">🎴</div>
               <div class="pack-shine"></div>
             </div>
           </div>
-
-          <p class="pack-click-hint">
-            <span class="click-icon">👆</span> Click để xé
-          </p>
+          <p class="pack-click-hint">👆 Click để xé</p>
         </div>
 
-        <!-- PHASE 2: Hiển thị 6 lá bài -->
-        <div
-          v-else-if="phase === 'cards_visible'"
-          key="cards"
-          class="cards-phase"
-        >
+        <!-- PHASE 2: CARDS -->
+        <div v-else-if="phase === 'cards_visible'" class="cards-phase" key="cards">
           <h2 class="cards-title">⭐ Kết quả mở Pack ⭐</h2>
-
+          
           <div class="cards-grid">
             <div
               v-for="(card, index) in cards"
               :key="index"
-              class="card-slot gacha-card"
+              class="card-slot card-flip-container"
+              :class="revealClasses[index]"
+              :style="{ 
+                '--card-index': index,
+                '--fly-from-x': `${(index - 2.5) * 40}px`,
+                '--fly-from-y': `${Math.abs(index - 2.5) * -30}px`,
+                '--fly-rotate': `${(index - 2.5) * 10}deg`,
+                '--rarity-glow': flipped[index] ? getRarityConfig(card?.rarity).glowColor : 'transparent'
+              }"
               @click="flipped[index] ? detailStore.openCard(card) : flipCard(index)"
             >
               <PokemonCard3D
                 :card="card"
                 :is-back="!flipped[index]"
+                :is-reverse="card.isReverse || false"
+                width="100%"
               />
               <div v-if="flipped[index]" class="card-price-tag group/price cursor-help">
                 {{ getMarketPrice(card) }}
@@ -378,454 +272,131 @@ onUnmounted(() => {
           </div>
 
           <div class="controls-panel">
-            <span class="controls-hint">🖱️ Click thẻ để lật • Hoặc dùng nút bên dưới</span>
             <div class="controls-buttons">
-              <button
-                class="ctrl-btn btn-auto"
-                :class="{ 'btn-active': isAutoRevealing }"
-                :disabled="allFlipped"
-                @click="isAutoRevealing ? stopAutoReveal() : startAutoReveal()"
-              >
+              <button class="ctrl-btn btn-auto" :class="{ 'btn-active': isAutoRevealing }" :disabled="allFlipped" @click="isAutoRevealing ? stopAutoReveal() : startAutoReveal()">
                 {{ isAutoRevealing ? '⏸ Dừng' : '▶ Auto-Reveal' }}
               </button>
-
-              <button
-                class="ctrl-btn btn-reveal"
-                :disabled="allFlipped"
-                @click="revealAll"
-              >
-                ✨ Reveal All
-              </button>
-
+              <button class="ctrl-btn btn-reveal" :disabled="allFlipped" @click="revealAll">✨ Reveal All</button>
               <Transition name="collect-appear">
-                <button
-                  v-if="allFlipped"
-                  class="ctrl-btn btn-collect"
-                  @click="handleCollect"
-                >
-                  🎒 Thu thập tất cả
-                </button>
+                <button v-if="allFlipped" class="ctrl-btn btn-collect" @click="handleCollect">🎒 Thu thập tất cả</button>
               </Transition>
             </div>
           </div>
-
         </div>
-      </Transition>
 
+      </Transition>
     </div>
   </Transition>
 </template>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════════════════════
-   OVERLAY BACKDROP
-═══════════════════════════════════════════════════════════════════ */
 .pack-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: absolute; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
   background: radial-gradient(ellipse at center, #0d1b2a 0%, #000000 100%);
   overflow: hidden;
 }
 
-/* Các hạt sáng nền (stars effect) */
-.pack-overlay::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.3) 0%, transparent 100%),
-    radial-gradient(1px 1px at 30% 50%, rgba(255,255,255,0.2) 0%, transparent 100%),
-    radial-gradient(1px 1px at 70% 30%, rgba(255,255,255,0.3) 0%, transparent 100%),
-    radial-gradient(1px 1px at 85% 70%, rgba(255,255,255,0.2) 0%, transparent 100%),
-    radial-gradient(1px 1px at 50% 85%, rgba(255,255,255,0.15) 0%, transparent 100%);
-  pointer-events: none;
-}
+/* Phase 1 Styles */
+.pack-phase { display: flex; flex-direction: column; align-items: center; gap: 2rem; }
+.pack-title { font-size: 2.5rem; font-weight: 900; color: #fff; letter-spacing: 0.15em; text-shadow: 0 0 30px rgba(255, 215, 0, 0.6); }
+.pack-wrapper { position: relative; cursor: pointer; transition: transform 0.2s; }
+.pack-shaking { animation: pack-shake 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+.pack-image-container { position: relative; width: 180px; height: 250px; display: flex; align-items: center; justify-content: center; }
+.pack-front-img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 20px rgba(99, 102, 241, 0.4)); }
+.pack-emoji { font-size: 6rem; filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.5)); }
+.pack-shine { position: absolute; inset: 0; background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.12) 50%, transparent 60%); animation: shine-sweep 2.5s infinite; }
+.pack-click-hint { color: rgba(255, 255, 255, 0.6); animation: hint-blink 1.5s infinite; }
 
-/* ═══════════════════════════════════════════════════════════════════
-   PHASE 1 — PACK DISPLAY
-═══════════════════════════════════════════════════════════════════ */
-.pack-phase {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 2rem;
-}
+/* Phase 2 Styles */
+.cards-phase { display: flex; flex-direction: column; align-items: center; gap: 4rem; width: 95%; height: 100%; padding-top: 2rem; }
+.cards-title { font-size: 1.75rem; font-weight: 900; color: #fff; text-shadow: 0 0 20px rgba(255, 215, 0, 0.5); }
+.cards-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 2.5rem 1.5rem; }
 
-.pack-title {
-  font-size: 2.5rem;
-  font-weight: 900;
-  color: #fff;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-  margin: 0;
-  text-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
-}
-
-.pack-subtitle {
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.5);
-  text-transform: uppercase;
-  letter-spacing: 0.3em;
-  margin: 0;
-}
-
-.pack-wrapper {
-  position: relative;
-  cursor: pointer;
-  transition: transform 0.15s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.pack-wrapper:hover {
-  transform: scale(1.03);
-}
-
-/* Animation rung khi click */
-.pack-shaking {
-  animation: pack-shake 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97);
-}
-
-@keyframes pack-shake {
-  0%, 100% { transform: translate(0, 0) rotate(0deg); }
-  10%       { transform: translate(-8px, 0) rotate(-3deg); }
-  20%       { transform: translate(8px, 0) rotate(3deg); }
-  30%       { transform: translate(-10px, -3px) rotate(-4deg); }
-  40%       { transform: translate(10px, 3px) rotate(4deg); }
-  50%       { transform: translate(-8px, 0) rotate(-3deg) scale(0.97); }
-  60%       { transform: translate(8px, 0) rotate(3deg) scale(0.97); }
-  70%       { transform: translate(-5px, 0) rotate(-2deg) scale(0.95); }
-  80%       { transform: translate(5px, 0) rotate(2deg) scale(0.95); }
-  90%       { transform: translate(0, 0) scale(0.92); }
-}
-
-/* Vòng glow xoay quanh pack */
-.pack-glow-ring {
-  position: absolute;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  animation: ring-spin 3s linear infinite;
-}
-
-.ring-1 {
-  width: 240px;
-  height: 240px;
-  border-top-color: rgba(99, 102, 241, 0.6);
-  border-right-color: rgba(168, 85, 247, 0.4);
-  animation-duration: 3s;
-}
-
-.ring-2 {
-  width: 280px;
-  height: 280px;
-  border-bottom-color: rgba(236, 72, 153, 0.5);
-  border-left-color: rgba(59, 130, 246, 0.3);
-  animation-duration: 5s;
-  animation-direction: reverse;
-}
-
-@keyframes ring-spin {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-
-/* Container ảnh pack */
-.pack-image-container {
-  position: relative;
-  width: 180px;
-  height: 250px;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: visible;
-}
-
-.pack-front-img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  filter: drop-shadow(0 0 20px rgba(99, 102, 241, 0.4));
-}
-
-.pack-emoji {
-  font-size: 6rem;
-  filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.5));
-  animation: pack-pulse 2s ease-in-out infinite;
-}
-
-@keyframes pack-pulse {
-  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.5)); }
-  50%       { transform: scale(1.05); filter: drop-shadow(0 0 35px rgba(255, 215, 0, 0.8)); }
-}
-
-/* Hiệu ứng ánh sáng quét qua pack */
-.pack-shine {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    105deg,
-    transparent 0%,
-    transparent 40%,
-    rgba(255, 255, 255, 0.12) 50%,
-    transparent 60%,
-    transparent 100%
-  );
-  animation: shine-sweep 2.5s ease-in-out infinite;
-}
-
-@keyframes shine-sweep {
-  0%   { transform: translateX(-100%); }
-  60%  { transform: translateX(200%); }
-  100% { transform: translateX(200%); }
-}
-
-.pack-click-hint {
-  font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.6);
-  animation: hint-blink 1.5s ease-in-out infinite;
-  margin: 0;
-}
-
-.click-icon { margin-right: 4px; }
-
-@keyframes hint-blink {
-  0%, 100% { opacity: 0.6; }
-  50%       { opacity: 1; }
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   PHASE 2 — CARDS DISPLAY
-═══════════════════════════════════════════════════════════════════ */
-.cards-phase {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5rem 1.5rem; /* Tăng khoảng cách dọc giữa tiêu đề và grid */
-  padding: 1.5rem;
-  width: 100%;
-  max-height: 100vh;
-  overflow-y: auto;
-}
-
-.cards-title {
-  font-size: 1.75rem;
-  font-weight: 900;
-  color: #fff;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  margin: 0;
-  text-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
-}
-
-/* Grid 6 thẻ — Sử dụng flex để căn giữa linh hoạt */
-.cards-grid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 2.5rem 1.5rem;
-  width: 95%;
-  max-width: 1600px; /* Giới hạn độ rộng tối đa trên màn siêu rộng */
-  margin: 0 auto;
-}
-
+/* CARD WRAPPER - FLY IN & MULTI SPIN */
 .card-slot {
   flex: 0 1 auto;
-  width: clamp(150px, 14vw, 230px);
-  cursor: pointer;
+  width: clamp(140px, 12vw, 210px);
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
+  animation: card-fly-in 0.8s cubic-bezier(0.19, 1, 0.22, 1) both;
+  animation-delay: calc(var(--card-index) * 80ms);
+}
+
+.card-flip-container {
+  perspective: 1000px;
 }
 
 .card-price-tag {
-  background: rgba(0, 0, 0, 0.7);
-  color: #34d399;
-  font-weight: 900;
-  font-size: 0.75rem;
-  padding: 2px 8px;
-  border-radius: 4px;
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(52, 211, 153, 0.3);
+  position: absolute; bottom: -25px; left: 50%; translate: -50% 0;
+  background: rgba(0, 0, 0, 0.7); color: #34d399; font-weight: 900; font-size: 0.75rem;
+  padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(52, 211, 153, 0.3);
 }
 
-
-/* ═══════════════════════════════════════════════════════════════════
-   CONTROLS PANEL — Góc dưới cùng
-═══════════════════════════════════════════════════════════════════ */
-.controls-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1rem 1.5rem;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+/* Multi-Spin Keyframes (Scoped selector for PokemonCard3D's rotator) */
+.flip-extra-spin :deep(.card__rotator) {
+  animation: extra-spin 1.0s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-.controls-hint {
-  font-size: 0.7rem;
-  color: rgba(255, 255, 255, 0.45);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+.flip-multi-spin :deep(.card__rotator) {
+  animation: multi-spin 1.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-.controls-buttons {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: center;
+.flip-ghost-spin :deep(.card__rotator) {
+  animation: ghost-spin 2.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-.ctrl-btn {
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 0.5rem 1.25rem;
-  border-radius: 10px;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
+@keyframes extra-spin {
+  0% { transform: rotateY(180deg); }
+  50% { transform: rotateY(540deg) scale(1.1); }
+  100% { transform: rotateY(0deg) scale(1); }
 }
 
-.ctrl-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-  transform: none !important;
+@keyframes multi-spin {
+  0% { transform: rotateY(180deg); }
+  33% { transform: rotateY(540deg) scale(1.05); }
+  66% { transform: rotateY(900deg) scale(1.15); }
+  100% { transform: rotateY(0deg) scale(1); }
 }
 
-.ctrl-btn:not(:disabled):hover {
-  transform: scale(1.05);
+@keyframes ghost-spin {
+  0% { transform: rotateY(180deg); }
+  25% { transform: rotateY(540deg) scale(1.1); }
+  50% { transform: rotateY(900deg) scale(1.2); }
+  75% { transform: rotateY(1260deg) scale(1.1); }
+  100% { transform: rotateY(0deg) scale(1); }
 }
 
-.ctrl-btn:not(:disabled):active {
-  transform: scale(0.96);
+@keyframes card-fly-in {
+  0% { transform: translate(var(--fly-from-x), var(--fly-from-y)) scale(0.3) rotate(var(--fly-rotate)); opacity: 0; filter: blur(10px); }
+  60% { filter: blur(0); opacity: 1; }
+  100% { transform: translate(0, 0) scale(1) rotate(0); opacity: 1; }
 }
 
-/* Auto-Reveal */
-.btn-auto {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  color: #fff;
-  box-shadow: 0 4px 15px rgba(79, 70, 229, 0.4);
+/* Controls Panel */
+.controls-panel { margin-top: auto; padding: 2rem; }
+.controls-buttons { display: flex; gap: 1rem; align-items: center; }
+.ctrl-btn { padding: 0.6rem 1.5rem; border-radius: 12px; font-weight: 800; text-transform: uppercase; cursor: pointer; transition: 0.2s; border: none; }
+.btn-auto { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; }
+.btn-reveal { background: linear-gradient(135deg, #d97706, #f59e0b); color: white; }
+.btn-collect { background: linear-gradient(135deg, #059669, #10b981); color: white; scale: 1.1; animation: collect-pulse 1.5s infinite; }
+
+/* Animations */
+@keyframes pack-shake {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  20% { transform: translate(-8px, 0) rotate(-3deg); }
+  40% { transform: translate(8px, 0) rotate(3deg); }
+  60% { transform: translate(-10px, -3px) rotate(-4deg); }
+  80% { transform: translate(10px, 3px) rotate(4deg); }
 }
+@keyframes shine-sweep { 0% { transform: translateX(-150%); } 60% { transform: translateX(250%); } 100% { transform: translateX(250%); } }
+@keyframes hint-blink { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+@keyframes collect-pulse { 0%, 100% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.4); } 50% { box-shadow: 0 0 40px rgba(16, 185, 129, 0.7); } }
 
-.btn-auto.btn-active {
-  background: linear-gradient(135deg, #7c3aed, #4f46e5);
-  box-shadow: 0 0 20px rgba(168, 85, 247, 0.6);
-}
-
-/* Reveal All */
-.btn-reveal {
-  background: linear-gradient(135deg, #d97706, #f59e0b);
-  color: #fff;
-  box-shadow: 0 4px 15px rgba(217, 119, 6, 0.4);
-}
-
-/* Collect */
-.btn-collect {
-  background: linear-gradient(135deg, #059669, #10b981);
-  color: #fff;
-  font-size: 0.875rem;
-  padding: 0.625rem 1.75rem;
-  box-shadow:
-    0 0 25px rgba(16, 185, 129, 0.5),
-    0 4px 15px rgba(5, 150, 105, 0.4);
-  animation: collect-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes collect-pulse {
-  0%, 100% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.4), 0 4px 12px rgba(0,0,0,0.3); }
-  50%       { box-shadow: 0 0 35px rgba(16, 185, 129, 0.7), 0 4px 12px rgba(0,0,0,0.3); }
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   VUE TRANSITION ANIMATIONS (PHASE SWITCHER)
-═══════════════════════════════════════════════════════════════════ */
-
-/* Overlay fade in/out */
-.overlay-fade-enter-active { transition: opacity 0.3s ease; }
-.overlay-fade-leave-active { transition: opacity 0.5s ease; }
-.overlay-fade-enter-from,
-.overlay-fade-leave-to    { opacity: 0; }
-
-/* Phase Switch (Mode: Out-In) */
-.phase-switch-leave-active {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.phase-switch-leave-to {
-  opacity: 0;
-  transform: scale(0.5);
-  filter: blur(10px);
-}
-
-.phase-switch-enter-active {
-  transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
-}
-.phase-switch-enter-from {
-  opacity: 0;
-  transform: scale(0.9) translateY(20px);
-}
-
-/* Nút Collect xuất hiện */
-.collect-appear-enter-active {
-  transition: all 0.4s cubic-bezier(0.19, 1, 0.22, 1);
-}
-.collect-appear-enter-from {
-  opacity: 0;
-  transform: scale(0.7);
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   RESPONSIVE — Tablet & Mobile
-═══════════════════════════════════════════════════════════════════ */
-/* Tablet: Chia thành 2 hàng (mỗi hàng 3 thẻ) */
-@media (max-width: 1200px) {
-  .cards-grid {
-    max-width: 800px; /* Thu hẹp container để ép 3 thẻ/hàng */
-    gap: 2rem 1.5rem;
-  }
-}
-
-@media (max-width: 640px) {
-  .card-slot {
-    width: 140px;
-  }
-
-  .cards-grid {
-    gap: 1.5rem 1rem;
-  }
-
-  .cards-title {
-    font-size: 1.25rem;
-  }
-
-  .pack-title {
-    font-size: 1.75rem;
-  }
-
-  .pack-image-container {
-    width: 140px;
-    height: 196px;
-  }
-
-  .pack-emoji {
-    font-size: 4.5rem;
-  }
-
-  .ring-1 { width: 180px; height: 180px; }
-  .ring-2 { width: 220px; height: 220px; }
-}
+/* Generic Animations */
+.overlay-fade-enter-active, .overlay-fade-leave-active { transition: opacity 0.4s; }
+.overlay-fade-enter-from, .overlay-fade-leave-to { opacity: 0; }
+.phase-switch-leave-active { transition: all 0.4s; }
+.phase-switch-leave-to { opacity: 0; transform: scale(0.6); filter: blur(15px); }
+.phase-switch-enter-active { transition: all 0.5s; }
+.phase-switch-enter-from { opacity: 0; transform: scale(0.9) translateY(40px); }
 </style>
