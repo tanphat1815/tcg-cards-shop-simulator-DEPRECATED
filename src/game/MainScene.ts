@@ -119,7 +119,7 @@ export default class MainScene extends Phaser.Scene {
     this.environmentManager = new EnvironmentManager(this)
     this.furnitureManager = new FurnitureManager(this)
     this.npcManager = new NPCManager(this, this.environmentManager)
-    this.staffManager = new StaffManager(this)
+    this.staffManager = new StaffManager(this, this.environmentManager)
     this.deliveryManager = new DeliveryManager(this, this.environmentManager)
 
     // 5. Khởi tạo Gym Leaders (chỉ lần đầu) - TRƯỚC khi init Town để tránh Race Condition
@@ -450,22 +450,28 @@ export default class MainScene extends Phaser.Scene {
   public refreshGates() {
     if (!this.environmentManager || !this.shopToTownGate) return
 
+    // Lấy tọa độ từ zone đã tính (KHÔNG hardcode)
+    const wz = this.environmentManager.warpGateZone
     const doorPos = this.environmentManager.getDoorLocation()
-    const gateY = doorPos.y + 150
-    
-    // 1. Dời cổng ⛩️
-    this.shopToTownGate.setPosition(doorPos.x, gateY)
 
-    // 2. Vẽ đoạn đường nối (Asphalt pathway)
+    // 1. Di chuyển text cổng Gym sang warpGateZone
+    this.shopToTownGate.setPosition(wz.x, wz.y)
+
+    // 2. Vẽ lại pathway — chỉ nối từ cửa đến warpGateZone (không kéo dài sang trái)
     this.gatePathway.clear()
-    this.gatePathway.fillStyle(0x34495e, 1) // Màu nhựa đường đồng nhất
-    const pathW = 100
-    const pathH = gateY - doorPos.y + 30
-    this.gatePathway.fillRect(doorPos.x - pathW/2, doorPos.y, pathW, pathH)
+    this.gatePathway.fillStyle(0x34495e, 1)
 
-    // Viền đường
-    this.gatePathway.lineStyle(2, 0x2c3e50, 0.5)
-    this.gatePathway.strokeRect(doorPos.x - pathW/2, doorPos.y, pathW, pathH)
+    const pathW = 60
+    // Đường dọc từ doorPos xuống giao với sidewalk
+    const pathFromY = doorPos.y
+    const pathToY = wz.y + 20
+
+    this.gatePathway.fillRect(doorPos.x - pathW / 2, pathFromY, pathW, pathToY - pathFromY)
+
+    // Đường ngang từ cửa sang phải đến warpGate (trên nền sidewalk)
+    const hPathY = doorPos.y + 80 // Giữa sidewalk
+    const hPathH = 30
+    this.gatePathway.fillRect(doorPos.x, hPathY, wz.x - doorPos.x + 20, hPathH)
   }
 
   /** Hiển thị hint [E] khi đứng gần cổng dịch chuyển */
@@ -475,13 +481,24 @@ export default class MainScene extends Phaser.Scene {
       return
     }
 
-    const doorPos = this.environmentManager.getDoorLocation()
-    const distToTown = Phaser.Math.Distance.Between(this.player.x, this.player.y, doorPos.x, doorPos.y + 150)
-    const distToShop = Phaser.Math.Distance.Between(this.player.x, this.player.y, TownManager.TOWN_START_X + 50, 500)
+    // Dùng tọa độ từ zone (không dùng magic numbers)
+    const wz = this.environmentManager.warpGateZone
+    const GATE_DETECT_RADIUS = 80 // px
 
-    if (distToTown < 80) {
-      this.gateHintText.setText('Bấm [E] để tới Town').setVisible(true)
-    } else if (distToShop < 80) {
+    const distToTownGate = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y,
+      wz.x, wz.y
+    )
+
+    // Cổng quay về Shop (vẫn giữ logic cũ với TownManager.TOWN_START_X)
+    const distToShopGate = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y,
+      TownManager.TOWN_START_X + 50, 500
+    )
+
+    if (distToTownGate < GATE_DETECT_RADIUS) {
+      this.gateHintText.setText('Bấm [E] để tới Gym Town').setVisible(true)
+    } else if (distToShopGate < GATE_DETECT_RADIUS) {
       this.gateHintText.setText('Bấm [E] về Shop').setVisible(true)
     } else {
       this.gateHintText.setVisible(false)
@@ -518,7 +535,8 @@ export default class MainScene extends Phaser.Scene {
   private handlePlayerInteraction(store: any) {
     // Ưu tiên 0: Cổng dịch chuyển (Teleport)
     const doorPos = this.environmentManager.getDoorLocation()
-    const distToTown = Phaser.Math.Distance.Between(this.player.x, this.player.y, doorPos.x, doorPos.y + 150)
+    const wz = this.environmentManager.warpGateZone
+    const distToTown = Phaser.Math.Distance.Between(this.player.x, this.player.y, wz.x, wz.y)
     const distToShop = Phaser.Math.Distance.Between(this.player.x, this.player.y, TownManager.TOWN_START_X + 50, 500)
 
     if (distToTown < 80) {

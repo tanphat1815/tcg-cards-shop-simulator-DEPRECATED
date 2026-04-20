@@ -20,12 +20,14 @@ interface WorkerNPC {
  */
 export class StaffManager {
   private scene: Phaser.Scene
+  private environmentManager: EnvironmentManager
   private workers: Map<string, WorkerNPC> = new Map()
   private workerSpeed = 80
   private lastUpdate = 0
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager) {
     this.scene = scene
+    this.environmentManager = environmentManager
   }
 
   public syncWorkers() {
@@ -109,8 +111,25 @@ export class StaffManager {
       }
       case 'NONE':
       default: {
-        worker.targetX = startX + 50 + (index * 40)
-        worker.targetY = startY + 450
+        // Lấy tọa độ Idle Zone từ EnvironmentManager
+        const idleZone = this.environmentManager.idleStaffZone
+        const zoneWidth = idleZone.width
+
+        // Tính offset ngang để các nhân viên đứng thành hàng, không đè lên nhau
+        const spacing = 32 // pixel cách nhau giữa các nhân viên
+        const totalWorkers = useStaffStore().hiredWorkers.length
+        const startOffset = -((totalWorkers - 1) * spacing) / 2
+        const workerOffset = startOffset + (index * spacing)
+
+        // Giới hạn offset trong phạm vi zone width
+        const clampedOffset = Phaser.Math.Clamp(
+          workerOffset,
+          -(zoneWidth / 2),
+          zoneWidth / 2
+        )
+
+        worker.targetX = idleZone.x + clampedOffset
+        worker.targetY = idleZone.y
         break
       }
     }

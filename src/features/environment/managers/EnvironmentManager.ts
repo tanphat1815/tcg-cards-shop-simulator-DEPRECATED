@@ -33,6 +33,13 @@ export class EnvironmentManager {
   
   private doorLocation = { x: 0, y: 0 }
   private shopBounds = { x: 0, y: 0, w: 0, h: 0 }
+
+  // Exterior Zones — Các Manager khác truy cập qua getter
+  public deliveryZone!: { x: number; y: number; width: number; height: number }
+  public warpGateZone!: { x: number; y: number }
+  public idleStaffZone!: { x: number; y: number; width: number }
+  
+  private sidewalkGraphics!: Phaser.GameObjects.Graphics
   
   /** Group chứa tất cả tường để kiểm tra va chạm tập trung */
   public wallsGroup!: Phaser.Physics.Arcade.StaticGroup
@@ -54,6 +61,7 @@ export class EnvironmentManager {
    */
   private initializeGraphics() {
     this.outsideGraphics = this.scene.add.graphics().setDepth(DEPTH.OUTSIDE)
+    this.sidewalkGraphics = this.scene.add.graphics().setDepth(DEPTH.FLOOR + 0.5)
     this.floorGraphics = this.scene.add.graphics().setDepth(DEPTH.FLOOR)
     this.wallGraphics = this.scene.add.graphics().setDepth(DEPTH.WALL_GRAPHICS)
   }
@@ -95,6 +103,9 @@ export class EnvironmentManager {
       this.wallsGroup.add(w)
       w.setVisible(false) // Ẩn vùng vật lý nâu mặc định của Phaser
     })
+
+    // 5. Khởi tạo tọa độ các zone ngoại cảnh ngay lập tức
+    this.computeExteriorZones()
 
     // Tạo lỗ cửa (Visual)
     this.scene.add.rectangle(this.doorLocation.x, this.doorLocation.y, 80, 60, 0x000000).setDepth(DEPTH.WALL + 1).setVisible(false)
@@ -299,6 +310,8 @@ export class EnvironmentManager {
       }
 
       // Cuối cùng: Đồng bộ hóa vật lý
+      this.computeExteriorZones()
+      this.drawSidewalk()
       this.updatePhysicalWalls()
     } catch (err) {
       console.error("CRITICAL: EnvironmentManager.refreshEnvironment failed!", err)
@@ -349,6 +362,50 @@ export class EnvironmentManager {
     this.wallBottomRight.setPosition(x + w - sideWallWidth / 2, y + h + thickness / 2)
     this.wallBottomRight.setSize(sideWallWidth, thickness)
     updateBody(this.wallBottomRight)
+  }
+
+  private computeExteriorZones() {
+    const door = this.doorLocation
+
+    this.deliveryZone = {
+      x: door.x - 220,
+      y: door.y + 100,
+      width: 200,
+      height: 50,
+    }
+
+    this.warpGateZone = {
+      x: door.x + 220,
+      y: door.y + 100,
+    }
+
+    this.idleStaffZone = {
+      x: door.x,
+      y: door.y + 180,
+      width: 120, // Chiều rộng khu vực để tính offset xếp hàng nhân viên
+    }
+  }
+
+  private drawSidewalk() {
+    const door = this.doorLocation
+    const shopW = this.shopBounds.w
+
+    this.sidewalkGraphics.clear()
+
+    // Dải vỉa hè ngang trước toàn bộ mặt tiền shop
+    const sidewalkY = door.y + 40
+    const sidewalkH = 90
+    const sidewalkX = this.shopBounds.x - 100 // Vỉa hè rộng hơn shop một chút
+    const sidewalkW = shopW + 200
+
+    // Màu gợi ý: 0x5a6478 (xám nhựa đường)
+    this.sidewalkGraphics.fillStyle(0x5a6478, 1)
+    this.sidewalkGraphics.fillRect(sidewalkX, sidewalkY, sidewalkW, sidewalkH)
+
+    // Viền kẻ phân làn (tuỳ chọn, tăng visual)
+    this.sidewalkGraphics.lineStyle(2, 0xffffff, 0.15)
+    const laneY = sidewalkY + sidewalkH / 2
+    this.sidewalkGraphics.lineBetween(sidewalkX, laneY, sidewalkX + sidewalkW, laneY)
   }
 
   /**
@@ -422,6 +479,7 @@ export class EnvironmentManager {
     this.floorGraphics.destroy()
     this.wallGraphics.destroy()
     this.outsideGraphics.destroy()
+    this.sidewalkGraphics.destroy()
     this.wallTop.destroy()
     this.wallLeft.destroy()
     this.wallRight.destroy()

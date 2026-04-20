@@ -46,17 +46,17 @@ export class DeliveryManager {
     // 2. Khởi tạo Delivery Zone (Vật thể tĩnh)
     this.deliveryZoneGroup = this.scene.physics.add.staticGroup()
     
-    // Tính toán vị trí bãi nhận hàng dựa trên vị trí cửa
-    const doorPos = this.environmentManager.getDoorLocation()
+    // Lấy zone từ EnvironmentManager (đã được tính trong refreshEnvironment)
+    const dz = this.environmentManager.deliveryZone
     
     // Tạo mặt sàn bãi nhận hàng (Màu xám đường nhựa)
-    const zoneRect = this.scene.add.rectangle(doorPos.x, doorPos.y + 120, 300, 40, 0x333333)
+    const zoneRect = this.scene.add.rectangle(dz.x, dz.y, dz.width, 50, 0x333333)
     zoneRect.setDepth(DEPTH.FURNITURE - 1)
     this.deliveryZoneGroup.add(zoneRect)
     
     // Vẽ Text tiêu đề trên mặt sàn
-    this.scene.add.text(doorPos.x, doorPos.y + 110, "BÃI NHẬN HÀNG", {
-      fontSize: '14px',
+    this.scene.add.text(dz.x, dz.y - 20, "BÃI NHẬN HÀNG", {
+      fontSize: '13px',
       fontStyle: 'bold',
       color: '#aaaaaa'
     }).setOrigin(0.5).setDepth(DEPTH.FURNITURE)
@@ -116,11 +116,12 @@ export class DeliveryManager {
   }
 
   private spawnBox(item: { itemId: string; name: string; type: string; quantity: number }) {
-    const doorPos = this.environmentManager.getDoorLocation()
+    const dz = this.environmentManager.deliveryZone
     
-    // Spawn dao động quanh cửa, nhưng rớt bên ngoài (Y > doorPos.y)
-    let spawnX = doorPos.x + Phaser.Math.Between(-100, 100)
-    let spawnY = doorPos.y + 20 // Spawn ở phía trên bãi nhận hàng một chút để rớt xuống
+    // Spawn ngẫu nhiên trong phạm vi ngang của deliveryZone
+    const halfWidth = dz.width / 2
+    const spawnX = dz.x + Phaser.Math.Between(-halfWidth * 0.7, halfWidth * 0.7)
+    const spawnY = dz.y - 80 // Spawn ở phía trên bãi nhận hàng một chút để rớt xuống
 
     const boxRect = this.scene.add.rectangle(spawnX, spawnY, 48, 36, 0x8B4513) as any
     boxRect.setStrokeStyle(2, 0x5D2906)
