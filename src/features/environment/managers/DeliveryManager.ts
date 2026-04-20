@@ -288,6 +288,10 @@ export class DeliveryManager {
     return this.boxes.filter(b => b.carriedBy === null)
   }
 
+  public getBoxById(boxId: string) {
+    return this.boxes.find(b => b.id === boxId) ?? null
+  }
+
   /**
    * Nhân viên nhặt thùng hàng.
    */
@@ -345,6 +349,12 @@ export class DeliveryManager {
     const shelfRole = shelf.role ?? 'selling'
 
     if (shelfRole === 'selling') {
+      if (carried.type === 'furniture') {
+        furnitureStore.startBuildMode(carried.itemId)
+        this.removeCarriedBox()
+        deliveryStore.dropBox()
+        return true
+      }
       useUIStore().openShelfMenu(shelfId)
       return true
     } else {

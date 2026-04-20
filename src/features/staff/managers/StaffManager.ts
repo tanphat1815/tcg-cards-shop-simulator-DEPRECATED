@@ -13,7 +13,6 @@ export type RestockSubState =
   | 'IDLE' 
   | 'SEARCH_BOX' 
   | 'MOVE_TO_BOX' 
-  | 'PICKUP_BOX' 
   | 'SEARCH_SHELF' 
   | 'MOVE_TO_SHELF' 
   | 'RESTOCKING' 
@@ -255,10 +254,15 @@ export class StaffManager {
         
         if (validBoxes.length > 0 && hasShelves) {
           const target = validBoxes[0]
-          worker.carriedBoxId = target.id
-          worker.targetX = target.sprite.x
-          worker.targetY = target.sprite.y
-          worker.subState = 'MOVE_TO_BOX'
+          
+          // "Reserve" box ngay lập tức để tránh nhân viên khác nhặt cùng 1 box
+          const success = this.deliveryManager.staffPickUpBox(target.id)
+          if (success) {
+            worker.carriedBoxId = target.id
+            worker.targetX = target.sprite.x
+            worker.targetY = target.sprite.y
+            worker.subState = 'MOVE_TO_BOX'
+          }
         } else {
           // Về Idle Zone chờ
           this.updateWorkerTarget(worker, _index)
@@ -269,14 +273,8 @@ export class StaffManager {
 
       case 'MOVE_TO_BOX': {
         if (this.moveToTarget(worker)) {
-          // Đã tới nơi
-          const success = this.deliveryManager.staffPickUpBox(worker.carriedBoxId!)
-          if (success) {
-            worker.subState = 'SEARCH_SHELF'
-          } else {
-            worker.carriedBoxId = null
-            worker.subState = 'SEARCH_BOX'
-          }
+          // Đã tới nơi và đã pick-up từ Search (Fix Issue #3)
+          worker.subState = 'SEARCH_SHELF'
         }
         break
       }
@@ -285,7 +283,7 @@ export class StaffManager {
         // Cập nhật vị trí box theo nhân viên
         this.deliveryManager.updateStaffCarryPosition(worker.carriedBoxId!, worker.sprite.x, worker.sprite.y)
         
-        const box = (this.deliveryManager as any).boxes.find((b: any) => b.id === worker.carriedBoxId)
+        const box = this.deliveryManager.getBoxById(worker.carriedBoxId!)
         if (!box) {
           worker.subState = 'SEARCH_BOX'
           return
@@ -345,7 +343,7 @@ export class StaffManager {
 
       case 'RESTOCKING': {
         this.deliveryManager.updateStaffCarryPosition(worker.carriedBoxId!, worker.sprite.x, worker.sprite.y)
-        const box = (this.deliveryManager as any).boxes.find((b: any) => b.id === worker.carriedBoxId)
+        const box = this.deliveryManager.getBoxById(worker.carriedBoxId!)
         if (!box) {
           worker.subState = 'SEARCH_BOX'
           return
