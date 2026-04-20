@@ -8,6 +8,8 @@ import { useStaffStore } from '../../staff/store/staffStore'
 import { useApiStore } from '../../inventory/store/apiStore'
 import { useGymStore } from '../../gym/store/gymStore'
 import { useCartStore } from '../../inventory/store/cartStore'
+import { useDeliveryStore } from '../../inventory/store/deliveryStore'
+import { usePlayerHandStore } from '../../inventory/store/playerHandStore'
 
 /**
  * GameStore (Facade Pattern) - Trung tâm điều phối dữ liệu của toàn bộ ứng dụng.
@@ -129,15 +131,12 @@ export const useGameStore = defineStore('game', {
         const shelfId = useUIStore().activeShelfId
         if (shelfId) useFurnitureStore().moveToTierSlot(shelfId, itemId, tierIndex) 
     },
-    fillTier(itemId: string, tierIndex: number) { 
-        const shelfId = useUIStore().activeShelfId
-        if (shelfId) useFurnitureStore().fillTier(shelfId, itemId, tierIndex) 
-    },
-    fillTierFromItem(shelfId: string, itemId: string, tierIndex: number, quantity: number) {
-        useFurnitureStore().fillTierFromItem(shelfId, itemId, tierIndex, quantity)
+    fillTierFromHand(shelfId: string, itemId: string, tierIndex: number, quantity: number) {
+        return useFurnitureStore().fillTierFromHand(shelfId, itemId, tierIndex, quantity)
     },
     clearTier(shelfId: string, tierIndex: number) { useFurnitureStore().clearTier(shelfId, tierIndex) },
     takeItemFromTier(shelfId: string, tierIndex: number) { useFurnitureStore().takeItemFromTier(shelfId, tierIndex) },
+    takeItemFromTierSimple(shelfId: string, tierIndex: number) { return useFurnitureStore().takeItemFromTierSimple(shelfId, tierIndex) },
     clearEntireShelf() { 
         const shelfId = useUIStore().activeShelfId
         if (shelfId) useFurnitureStore().clearEntireShelf(shelfId) 
@@ -202,6 +201,8 @@ export const useGameStore = defineStore('game', {
           useCustomerStore().loadCustomerState(parsed)
           useStaffStore().loadStaff(parsed)
           useGymStore().loadGymState(parsed)
+          useDeliveryStore().activeBoxes = parsed.deliveryBoxes || []
+          usePlayerHandStore().loadHand(parsed)
           
           useApiStore().initSeriesShop()
         } catch (e) {
@@ -232,7 +233,9 @@ export const useGameStore = defineStore('game', {
         placedCashiers: furniture.placedCashiers,
         purchasedFurniture: furniture.purchasedFurniture,
         shopState: customer.shopState,
-        gymLeaders: useGymStore().gymLeaders
+        gymLeaders: useGymStore().gymLeaders,
+        deliveryBoxes: useDeliveryStore().activeBoxes,
+        playerHand: usePlayerHandStore().item
       }
       localStorage.setItem('tcg-shop-save', JSON.stringify(saveData))
     },

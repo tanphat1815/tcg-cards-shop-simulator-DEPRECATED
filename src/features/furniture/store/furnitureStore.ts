@@ -3,6 +3,7 @@ import { FURNITURE_ITEMS } from '../config'
 import { useStatsStore } from '../../stats/store/statsStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { useStaffStore } from '../../staff/store/staffStore'
+import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import type { ShelfData, PlayTableData, CashierData, ShelfTier, ShelfRole } from '../types'
 
 /**
@@ -153,15 +154,14 @@ export const useFurnitureStore = defineStore('furniture', {
     },
 
     /**
-     * Đổ hàng trực tiếp từ Thùng hàng đang cầm lên kệ (không đi qua inventory shop).
-     * Dùng cho workflow manual của Kệ Bán Hàng.
+     * Đặt hàng từ "Trên Tay" vào kệ.
      */
-    fillTierFromItem(shelfId: string, itemId: string, tierIndex: number, quantity: number) {
+    fillTierFromHand(shelfId: string, itemId: string, tierIndex: number, quantity: number): number {
       const inventoryStore = useInventoryStore()
       const shelf = this.placedShelves[shelfId]
-      if (!shelf) return
+      if (!shelf) return 0
       const itemData = inventoryStore.shopItems[itemId]
-      if (!itemData) return
+      if (!itemData) return 0
 
       const tier = shelf.tiers[tierIndex]
       const isBox = itemData.type === 'box'
@@ -169,13 +169,12 @@ export const useFurnitureStore = defineStore('furniture', {
       const slotsPerTier = shelfConfig?.slotsPerTier || 16
       const maxSlots = isBox ? Math.floor(slotsPerTier / 4) : slotsPerTier
 
-      // Thiết lập tier nếu trống
       if (tier.itemId === null) {
         tier.itemId = itemId
         tier.maxSlots = maxSlots
         tier.slots = []
       } else if (tier.itemId !== itemId) {
-        return // Không thể trộn hàng
+        return 0
       }
 
       const spaceLeft = tier.maxSlots - tier.slots.length
@@ -184,7 +183,7 @@ export const useFurnitureStore = defineStore('furniture', {
       for (let i = 0; i < toAdd; i++) {
         tier.slots.push(itemId)
       }
-      // KHÔNG trừ inventoryStore.shopInventory vì hàng từ thùng
+      return toAdd
     },
 
     /**
@@ -212,28 +211,38 @@ export const useFurnitureStore = defineStore('furniture', {
     },
 
     /**
-     * Lấy 1 món đồ từ kệ trả về kho hàng.
+     * Lấy 1 món đồ từ kệ (không trả về inventory, chỉ pop khỏi slots).
+     * Trả về itemId nếu lấy thành công.
      */
-    takeItemFromTier(shelfId: string, tierIndex: number) {
-      const inventoryStore = useInventoryStore()
+    takeItemFromTierSimple(shelfId: string, tierIndex: number): string | null {
       const shelf = this.placedShelves[shelfId]
-      if (!shelf) return
+      if (!shelf) return null
 
       const tier = shelf.tiers[tierIndex]
-      if (!tier.itemId || tier.slots.length === 0) return
+      if (!tier.itemId || tier.slots.length === 0) return null
 
       const itemId = tier.itemId
       tier.slots.pop()
-
-      // Trả lại vào kho
-      if (!inventoryStore.shopInventory[itemId]) inventoryStore.shopInventory[itemId] = 0
-      inventoryStore.shopInventory[itemId]++
 
       // Nếu tầng trống hẳn thì xóa luôn itemId
       if (tier.slots.length === 0) {
         tier.itemId = null
         tier.maxSlots = 0
       }
+      return itemId
+    },
+
+    /**
+     * Lấy 1 món đồ từ kệ trả về kho hàng (Legacy/Accounting).
+     */
+    takeItemFromTier(shelfId: string, tierIndex: number) {
+      const inventoryStore = useInventoryStore()
+      const itemId = this.takeItemFromTierSimple(shelfId, tierIndex)
+      if (!itemId) return
+
+      // Trả lại vào kho
+      if (!inventoryStore.shopInventory[itemId]) inventoryStore.shopInventory[itemId] = 0
+      inventoryStore.shopInventory[itemId]++
     },
 
     /**
@@ -270,14 +279,23 @@ export const useFurnitureStore = defineStore('furniture', {
      */
     buyFurniture(furnitureId: string) {
       const statsStore = useStatsStore()
+      const deliveryStore = useDeliveryStore()
       const furnitureData = FURNITURE_ITEMS[furnitureId]
       if (!furnitureData) return false
 
       if (!statsStore.spendMoney(furnitureData.buyPrice)) return false
       if (statsStore.level < furnitureData.requiredLevel) return false
 
-      if (!this.purchasedFurniture[furnitureId]) this.purchasedFurniture[furnitureId] = 0
-      this.purchasedFurniture[furnitureId]++
+      // Thay vì cộng trực tiếp, tạo đơn hàng vận chuyển
+      deliveryStore.scheduleDelivery([{
+        itemId: furnitureId,
+        name: furnitureData.name,
+        type: 'furniture',
+        quantity: 1,
+        imageUrl: '', // Sẽ dùng sprite/svg trong game
+        furnitureId: furnitureId
+      }])
+      
       return true
     },
 

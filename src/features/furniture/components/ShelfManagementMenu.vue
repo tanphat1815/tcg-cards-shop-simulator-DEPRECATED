@@ -4,11 +4,13 @@ import { useGameStore } from '../../shop-ui/store/gameStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
 import { useDeliveryStore } from '../../inventory/store/deliveryStore'
+import { usePlayerHandStore, type HandItemType } from '../../inventory/store/playerHandStore'
 import { getPackVisuals, getBoxVisuals } from '../../inventory/config/assetRegistry'
 
 const gameStore = useGameStore()
 const inventoryStore = useInventoryStore()
 const deliveryStore = useDeliveryStore()
+const handStore = usePlayerHandStore()
 
 /** ID của item đang được chọn để xếp lên kệ */
 const selectedItemId = ref<string | null>(null)
@@ -19,8 +21,8 @@ const isSelectedFromHand = ref(false)
  * Tự động chọn item đang cầm trên tay nếu có khi mở menu.
  */
 onMounted(() => {
-  if (deliveryStore.carriedBox) {
-    selectedItemId.value = deliveryStore.carriedBox.itemId
+  if (handStore.item) {
+    selectedItemId.value = handStore.item.itemId
     isSelectedFromHand.value = true
   }
 })
@@ -50,8 +52,8 @@ const selectItemFromInventory = (id: string) => {
 }
 
 const selectItemFromHand = () => {
-  if (deliveryStore.carriedBox) {
-    selectedItemId.value = deliveryStore.carriedBox.itemId
+  if (handStore.item) {
+    selectedItemId.value = handStore.item.itemId
     isSelectedFromHand.value = true
   }
 }
@@ -64,33 +66,37 @@ const handleTierClick = (tierIndex: number, event: MouseEvent) => {
   const shelf = activeShelf.value
   if (!shelf) return
 
-  const deliveryStore = useDeliveryStore()
   const shopItem = inventoryStore.shopItems[selectedItemId.value]
 
   // TRƯỜNG HỢP 1: Xếp hàng từ thùng đang cầm trên tay
-  if (isSelectedFromHand.value && deliveryStore.carriedBox) {
-    const carried = deliveryStore.carriedBox
+  if (isSelectedFromHand.value && handStore.item) {
+    const handItem = handStore.item
     
     // Thực hiện nạp hàng trực tiếp vào tier của kệ
-    gameStore.fillTierFromItem(shelf.id, carried.itemId, tierIndex, carried.quantity)
+    const placed = gameStore.fillTierFromHand(shelf.id, handItem.itemId, tierIndex, handItem.quantity)
     
-    // Đánh dấu để Phaser xóa thùng hàng vật lý
-    deliveryStore.consumeCarriedBox()
-    
-    // Mở popup định giá (chỉ cho kệ bán và CHỈ KHI chưa có giá đã set)
-    if (shelf.role !== 'storage' && (shopItem?.sellPrice || 0) <= 0) {
-      openPriceEditor(carried.itemId, tierIndex)
+    if (placed > 0) {
+      handStore.putDown(placed)
+      
+      // Mở popup định giá (chỉ cho kệ bán và CHỈ KHI chưa có giá đã set)
+      if (shelf.role !== 'storage' && (shopItem?.sellPrice || 0) <= 0) {
+        openPriceEditor(handItem.itemId, tierIndex)
+      }
     }
     
     // Reset lựa chọn sau khi xếp xong
-    selectedItemId.value = null
-    isSelectedFromHand.value = false
+    if (handStore.isEmpty) {
+      selectedItemId.value = null
+      isSelectedFromHand.value = false
+    }
     return
   }
 
-  // TRƯỜNG HỢP 2: Xếp hàng từ Inventory shop thông thường
+  // TRƯỜNG HỢP 2: Xếp hàng từ Inventory shop thông thường (Shift + Click để xếp đầy)
   if (event.shiftKey) {
-    gameStore.fillTier(selectedItemId.value, tierIndex)
+    // Chúng ta vẫn có thể dùng moveToTierSlot lặp lại hoặc khôi phục fillTier
+    // Ở đây tôi sẽ dùng moveToTierSlot cho đơn giản hoặc khôi phục fillTier trong gameStore
+    gameStore.moveToTierSlot(selectedItemId.value, tierIndex) 
   } else {
     gameStore.moveToTierSlot(selectedItemId.value, tierIndex)
   }
@@ -131,9 +137,34 @@ const openPriceEditor = (itemId: string, tierIndex: number) => {
 }
 
 const handleTierRightClick = (tierIndex: number) => {
-  const shelfId = gameStore.activeShelfId
-  if (!shelfId) return
-  gameStore.takeItemFromTier(shelfId, tierIndex)
+  const shelf = activeShelf.value
+  if (!shelf) return
+
+  const tier = shelf.tiers[tierIndex]
+  if (!tier.itemId || tier.slots.length === 0) return
+
+  const itemData = inventoryStore.shopItems[tier.itemId]
+  if (!itemData) return
+
+  const isBox = itemData.type === 'box'
+  const currentHandQty = handStore.item?.quantity || 0
+  const canTakeMore = isBox ? (handStore.isEmpty ? 1 : 0) : (8 - currentHandQty)
+  const actualTake = Math.min(canTakeMore, tier.slots.length)
+  
+  if (actualTake <= 0) return
+
+  // Rút từ kệ từng món
+  for (let i = 0; i < actualTake; i++) {
+    gameStore.takeItemFromTierSimple(shelf.id, tierIndex)
+  }
+
+  // Đặt vào tay
+  handStore.pickup({
+    itemId: tier.itemId,
+    name: itemData.name,
+    type: itemData.type as HandItemType,
+    quantity: actualTake
+  })
 }
 
 const clearTier = (tierIndex: number) => {
@@ -203,7 +234,7 @@ const tierFillPct = (tierIndex: number): number => {
         <div class="w-[240px] shrink-0 border-r border-gray-700 bg-gray-900/50 p-4 flex flex-col relative">
           
           <!-- SECTION 1: ĐANG CẦM (CARRYING) -->
-          <div v-if="deliveryStore.carriedBox" class="mb-6">
+          <div v-if="handStore.item" class="mb-6">
             <h3 class="text-sm font-bold text-indigo-400 mb-3 pb-2 border-b border-indigo-500/30 uppercase tracking-wider flex items-center gap-2">
               <span class="animate-pulse">🙌</span> Đang cầm
             </h3>
@@ -216,14 +247,14 @@ const tierFillPct = (tierIndex: number): number => {
             >
               <div class="flex justify-between items-start mb-1">
                 <span class="font-black text-[13px] text-white truncate pr-2">
-                  {{ deliveryStore.carriedBox.name }}
+                  {{ handStore.item.name }}
                 </span>
                 <span class="bg-indigo-500 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
-                  x{{ deliveryStore.carriedBox.quantity }}
+                  x{{ handStore.item.quantity }}
                 </span>
               </div>
               <span class="text-[10px] text-indigo-300 font-medium uppercase">
-                {{ deliveryStore.carriedBox.type === 'pack' ? '🎁 Booster Pack' : '📦 Thùng hàng' }}
+                {{ handStore.item.type === 'pack' ? '🎁 Booster Pack' : '📦 Thùng hàng' }}
               </span>
 
               <!-- Selection Indicator -->
@@ -279,7 +310,7 @@ const tierFillPct = (tierIndex: number): number => {
             <div v-if="selectedItemId" class="flex items-center gap-2 bg-indigo-500/20 px-3 py-1 rounded-full border border-indigo-500/30">
                <span class="text-[10px] font-bold text-indigo-300 uppercase">Đang chọn:</span>
                <span class="text-[11px] text-white font-black truncate max-w-[150px]">
-                  {{ isSelectedFromHand ? deliveryStore.carriedBox?.name : inventoryStore.shopItems[selectedItemId]?.name }}
+                  {{ isSelectedFromHand ? handStore.item?.name : inventoryStore.shopItems[selectedItemId]?.name }}
                </span>
             </div>
           </div>

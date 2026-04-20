@@ -9,6 +9,8 @@ export const useDeliveryStore = defineStore('delivery', {
     carriedBox: null as PendingDeliveryItem | null,
     /** Trigger mở SetPriceModal sau khi xếp hàng lên kệ */
     setPriceTarget: null as SetPriceTarget | null,
+    /** Thùng hàng đang nằm trên đất (để save/load) */
+    activeBoxes: [] as any[],
     /** Đánh dấu thùng hàng đã được tiêu thụ bởi UI (khi xếp hàng thủ công) */
     isCarriedBoxConsumed: false,
   }),
@@ -18,7 +20,7 @@ export const useDeliveryStore = defineStore('delivery', {
      * Gọi sau khi Cart checkout thành công.
      * Chuyển cartItems → pendingDeliveries để Phaser spawn.
      */
-    scheduleDelivery(items: Array<{ itemId: string; name: string; type: string; quantity: number; imageUrl: string; sourceSetId?: string }>) {
+    scheduleDelivery(items: PendingDeliveryItem[]) {
       items.forEach(item => {
         // Mỗi đơn vị quantity → 1 delivery item (Phaser sẽ spawn nhiều box)
         this.pendingDeliveries.push({
@@ -27,6 +29,7 @@ export const useDeliveryStore = defineStore('delivery', {
           type: item.type as any,
           quantity: item.quantity,
           imageUrl: item.imageUrl,
+          furnitureId: item.furnitureId,
           sourceSetId: item.sourceSetId,
         })
       })

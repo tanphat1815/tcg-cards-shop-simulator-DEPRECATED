@@ -379,6 +379,8 @@ export class NPCManager {
         const shelves = Object.values(store.placedShelves)
         let foundShelfId = null
         for (const shelf of shelves) {
+          // FIX: Chỉ mua từ kệ 'selling', KHÔNG bao giờ từ 'storage'
+          if (shelf.role !== 'selling') continue
           if (!customer.checkedShelfIds.includes(shelf.id) && shelf.tiers.some(t => t.slots.length > 0)) {
             foundShelfId = shelf.id
             break
@@ -433,6 +435,14 @@ export class NPCManager {
       }
 
       // Trừ hàng trong Store và thu thập thông tin giá cả
+      if (shelfIdTaken) {
+        const shelf = store.placedShelves[shelfIdTaken]
+        if (!shelf || shelf.role !== 'selling') {
+          customer.state = 'WANDER'
+          return
+        }
+      }
+
       const itemId = shelfIdTaken ? store.npcTakeItemFromSlot(shelfIdTaken) : null
       if (itemId) {
         const itemData = store.shopItems[itemId]

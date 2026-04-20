@@ -54,7 +54,9 @@ export class FurnitureManager {
 
   public displayShelf(shelf: ShelfData) {
     const isDouble = shelf.furnitureId === 'shelf_double'
-    const sprite = this.shelvesGroup.create(shelf.x, shelf.y, 'shelf')
+    const isStorage = shelf.role === 'storage'
+    const textureKey = isStorage ? 'warehouse_shelf' : 'shelf'
+    const sprite = this.shelvesGroup.create(shelf.x, shelf.y, textureKey)
     
     sprite.setData('id', shelf.id)
     sprite.setData('type', 'shelf')
@@ -63,6 +65,9 @@ export class FurnitureManager {
     if (isDouble) {
       sprite.setTint(0x8B4513)
       sprite.setScale(1.2, 1.0)
+    } else if (isStorage && shelf.furnitureId === 'warehouse_shelf') {
+      // Kệ kho công nghiệp: Giữ màu xám, scale to hơn 1 chút nếu cần
+      sprite.setScale(1.1, 1.1)
     }
 
     const text = this.scene.add.text(shelf.x, shelf.y - 60, this.getShelfInfo(shelf), {

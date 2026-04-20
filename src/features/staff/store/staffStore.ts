@@ -32,6 +32,7 @@ export const useStaffStore = defineStore('staff', {
         instanceId: `worker_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         dataId: workerId,
         duty: 'NONE',
+        restockMode: 'AUTO',
         x: 0,
         y: 0,
         state: 'IDLE'
@@ -56,6 +57,13 @@ export const useStaffStore = defineStore('staff', {
       worker.targetDeskId = (duty === 'CHECKOUT') ? targetDeskId : null
     },
 
+    updateRestockMode(instanceId: string, mode: any) {
+      const worker = this.hiredWorkers.find(w => w.instanceId === instanceId)
+      if (worker) {
+        worker.restockMode = mode
+      }
+    },
+
     terminateWorker(instanceId: string) {
       this.hiredWorkers = this.hiredWorkers.filter(w => w.instanceId !== instanceId)
     },
@@ -70,7 +78,20 @@ export const useStaffStore = defineStore('staff', {
     },
 
     loadStaff(parsed: any) {
-      this.hiredWorkers = parsed.hiredWorkers ?? []
+      if (!parsed.hiredWorkers || !Array.isArray(parsed.hiredWorkers)) {
+        this.hiredWorkers = []
+        return
+      }
+      this.hiredWorkers = parsed.hiredWorkers.map((hw: any) => ({
+        instanceId: hw.instanceId,
+        dataId: hw.dataId,
+        duty: hw.duty ?? 'NONE',
+        targetDeskId: hw.targetDeskId ?? null,
+        restockMode: hw.restockMode ?? 'AUTO',
+        x: 0,
+        y: 0,
+        state: 'IDLE'
+      }))
     }
   }
 })

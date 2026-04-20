@@ -4,6 +4,21 @@ import { useStaffStore } from '../store/staffStore'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import type { WorkerDuty } from '../types'
 import { EnvironmentManager } from '../../environment/managers/EnvironmentManager'
+import { useFurnitureStore } from '../../furniture/store/furnitureStore'
+
+import { DeliveryManager } from '../../environment/managers/DeliveryManager'
+
+/** Trạng thái nội bộ của nhân viên khi thực hiện Restock */
+export type RestockSubState = 
+  | 'IDLE' 
+  | 'SEARCH_BOX' 
+  | 'MOVE_TO_BOX' 
+  | 'PICKUP_BOX' 
+  | 'SEARCH_SHELF' 
+  | 'MOVE_TO_SHELF' 
+  | 'RESTOCKING' 
+  | 'RETURN_BOX'
+  | 'DISPOSE_BOX'
 
 interface WorkerNPC {
   instanceId: string
@@ -11,8 +26,20 @@ interface WorkerNPC {
   statusText: Phaser.GameObjects.Text
   targetX: number
   targetY: number
-  state: WorkerDuty
-  targetDeskId?: string | null // Khớp với HiredWorker
+  duty: WorkerDuty
+  subState: RestockSubState
+  targetDeskId?: string | null
+  
+  // Data cho Restock
+  carriedBoxId?: string | null
+  targetShelfId?: string | null
+  targetTierIndex?: number | null
+  actionTimer?: number
+  
+  // Anti-stuck
+  stuckTimer: number
+  lastX: number
+  lastY: number
 }
 
 /**
@@ -21,13 +48,15 @@ interface WorkerNPC {
 export class StaffManager {
   private scene: Phaser.Scene
   private environmentManager: EnvironmentManager
+  private deliveryManager: DeliveryManager
   private workers: Map<string, WorkerNPC> = new Map()
-  private workerSpeed = 80
+  private workerSpeed = 100
   private lastUpdate = 0
 
-  constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager) {
+  constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager, deliveryManager: DeliveryManager) {
     this.scene = scene
     this.environmentManager = environmentManager
+    this.deliveryManager = deliveryManager
   }
 
   public syncWorkers() {
@@ -63,75 +92,71 @@ export class StaffManager {
           statusText,
           targetX: sprite.x,
           targetY: sprite.y,
-          state: w.duty,
-          targetDeskId: w.targetDeskId
+          duty: w.duty,
+          subState: 'IDLE',
+          targetDeskId: w.targetDeskId,
+          stuckTimer: 0,
+          lastX: sprite.x,
+          lastY: sprite.y
         }
         this.workers.set(w.instanceId, worker)
-        this.updateWorkerTarget(worker, index)
       }
 
       const current = this.workers.get(w.instanceId)!
-      if (current.state !== w.duty || current.targetDeskId !== w.targetDeskId) {
-        current.state = w.duty
+      if (current.duty !== w.duty || current.targetDeskId !== w.targetDeskId) {
+        // Reset subState nếu đổi duty
+        if (current.duty !== w.duty) {
+           this.dropAnything(current)
+           current.subState = 'IDLE'
+        }
+        current.duty = w.duty
         current.targetDeskId = w.targetDeskId
         this.updateWorkerTarget(current, index)
       }
     })
   }
 
+  private dropAnything(worker: WorkerNPC) {
+    if (worker.carriedBoxId) {
+      this.deliveryManager.staffDropBox(worker.carriedBoxId, worker.sprite.x, worker.sprite.y)
+      worker.carriedBoxId = null
+    }
+    worker.targetShelfId = null
+    worker.targetTierIndex = null
+  }
+
   private updateWorkerTarget(worker: WorkerNPC, index: number = 0) {
     const gameStore = useGameStore()
-    const startX = EnvironmentManager.START_X
-    const startY = EnvironmentManager.START_Y
 
-    const hiredData = useStaffStore().hiredWorkers.find(w => w.instanceId === worker.instanceId)
+    if (worker.duty === 'CHECKOUT') {
+      const deskId = worker.targetDeskId
+      const desk = deskId ? (gameStore.placedCashiers as any)[deskId] : Object.values(gameStore.placedCashiers)[0]
+      if (desk) {
+        worker.targetX = desk.x
+        worker.targetY = desk.y - 40
+      }
+      return
+    }
 
-    switch (worker.state) {
-      case 'CHECKOUT': {
-        const deskId = hiredData?.targetDeskId
-        const desk = deskId ? (gameStore.placedCashiers as any)[deskId] : Object.values(gameStore.placedCashiers)[0]
-        
-        if (desk) {
-          worker.targetX = desk.x
-          worker.targetY = desk.y - 40
-        }
-        break
-      }
-      case 'RESTOCK': {
-        const shelves = Object.values(gameStore.placedShelves) as any[]
-        if (shelves.length > 0) {
-          const shelf = shelves[Math.floor(Math.random() * shelves.length)]
-          worker.targetX = shelf.x + (Math.random() > 0.5 ? 40 : -40)
-          worker.targetY = shelf.y
-        } else {
-          worker.targetX = startX + 100 + Math.random() * 200
-          worker.targetY = startY + 100 + Math.random() * 200
-        }
-        break
-      }
-      case 'NONE':
-      default: {
-        // Lấy tọa độ Idle Zone từ EnvironmentManager
+    // Duty: RESTOCK
+    switch (worker.subState) {
+      case 'IDLE':
+      case 'SEARCH_BOX': {
         const idleZone = this.environmentManager.idleStaffZone
-        const zoneWidth = idleZone.width
-
-        // Tính offset ngang để các nhân viên đứng thành hàng, không đè lên nhau
-        const spacing = 32 // pixel cách nhau giữa các nhân viên
+        const spacing = 32
         const totalWorkers = useStaffStore().hiredWorkers.length
         const startOffset = -((totalWorkers - 1) * spacing) / 2
         const workerOffset = startOffset + (index * spacing)
-
-        // Giới hạn offset trong phạm vi zone width
-        const clampedOffset = Phaser.Math.Clamp(
-          workerOffset,
-          -(zoneWidth / 2),
-          zoneWidth / 2
-        )
-
-        worker.targetX = idleZone.x + clampedOffset
+        worker.targetX = idleZone.x + workerOffset
         worker.targetY = idleZone.y
         break
       }
+      case 'SEARCH_SHELF': {
+        // Tạm thời đứng im hoặc move tới giữa shop
+        break
+      }
+      default:
+        break
     }
   }
 
@@ -142,24 +167,225 @@ export class StaffManager {
 
     if (time > this.lastUpdate + 100) {
       this.lastUpdate = time
+      const indexArr = Array.from(this.workers.keys())
       this.workers.forEach(worker => {
-        this.handleAI(worker)
+        const idx = indexArr.indexOf(worker.instanceId)
+        this.handleAI(worker, idx)
       })
     }
   }
 
-  private handleAI(worker: WorkerNPC) {
+  private handleAI(worker: WorkerNPC, index: number) {
+    // 1. Anti-stuck logic
+    const distLast = Phaser.Math.Distance.Between(worker.sprite.x, worker.sprite.y, worker.lastX, worker.lastY)
+    if (distLast < 1 && worker.duty !== 'NONE') {
+      worker.stuckTimer += 100
+    } else {
+      worker.stuckTimer = 0
+    }
+    worker.lastX = worker.sprite.x
+    worker.lastY = worker.sprite.y
+
+    if (worker.stuckTimer > 3000) {
+       // Warp to target if stuck
+       worker.sprite.setPosition(worker.targetX, worker.targetY)
+       worker.stuckTimer = 0
+    }
+
+    // 2. Dispatcher
+    if (worker.duty === 'CHECKOUT') {
+      this.handleCheckoutAI(worker)
+    } else if (worker.duty === 'RESTOCK') {
+      this.handleRestockAI(worker, index)
+    } else {
+      this.handleIdleAI(worker, index)
+    }
+  }
+
+  /** Logic cũ cho Checkout */
+  private handleCheckoutAI(worker: WorkerNPC) {
     const dist = Phaser.Math.Distance.Between(worker.sprite.x, worker.sprite.y, worker.targetX, worker.targetY)
-    
     if (dist > 10) {
       this.scene.physics.moveTo(worker.sprite, worker.targetX, worker.targetY, this.workerSpeed)
     } else {
       worker.sprite.body?.velocity.set(0)
-      
-      if (worker.state === 'RESTOCK' && Math.random() < 0.02) {
-        const index = Array.from(this.workers.keys()).indexOf(worker.instanceId)
-        this.updateWorkerTarget(worker, index)
+    }
+  }
+
+  private handleIdleAI(worker: WorkerNPC, _index: number) {
+    const dist = Phaser.Math.Distance.Between(worker.sprite.x, worker.sprite.y, worker.targetX, worker.targetY)
+    if (dist > 10) {
+      this.scene.physics.moveTo(worker.sprite, worker.targetX, worker.targetY, this.workerSpeed)
+    } else {
+      worker.sprite.body?.velocity.set(0)
+    }
+  }
+
+  /** TOÀN BỘ LOGIC RESTOCK (9 States) */
+  private handleRestockAI(worker: WorkerNPC, _index: number) {
+    const furnitureStore = useFurnitureStore()
+
+    // Nếu đang có timer (đang Restocking)
+    if (worker.actionTimer && worker.actionTimer > this.scene.time.now) {
+       worker.sprite.body?.velocity.set(0)
+       return
+    }
+
+    switch (worker.subState) {
+      case 'IDLE':
+        if (worker.carriedBoxId) {
+          worker.subState = 'SEARCH_SHELF'
+        } else {
+          worker.subState = 'SEARCH_BOX'
+        }
+        break
+
+      case 'SEARCH_BOX': {
+        if (worker.carriedBoxId) {
+          worker.subState = 'SEARCH_SHELF'
+          return
+        }
+
+        const boxes = this.deliveryManager.getUncarriedBoxes()
+        // Chỉ nhặt thùng 'box' hoặc 'pack', không nhặt 'furniture'
+        const validBoxes = boxes.filter(b => b.type !== 'furniture')
+        
+        // KIỂM TRA: Chỉ nhặt nếu shop có ít nhất 1 kệ (bán hàng hoặc kho)
+        const hasShelves = Object.values(furnitureStore.placedShelves).length > 0
+        
+        if (validBoxes.length > 0 && hasShelves) {
+          const target = validBoxes[0]
+          worker.carriedBoxId = target.id
+          worker.targetX = target.sprite.x
+          worker.targetY = target.sprite.y
+          worker.subState = 'MOVE_TO_BOX'
+        } else {
+          // Về Idle Zone chờ
+          this.updateWorkerTarget(worker, _index)
+          this.moveToTarget(worker)
+        }
+        break
       }
+
+      case 'MOVE_TO_BOX': {
+        if (this.moveToTarget(worker)) {
+          // Đã tới nơi
+          const success = this.deliveryManager.staffPickUpBox(worker.carriedBoxId!)
+          if (success) {
+            worker.subState = 'SEARCH_SHELF'
+          } else {
+            worker.carriedBoxId = null
+            worker.subState = 'SEARCH_BOX'
+          }
+        }
+        break
+      }
+
+      case 'SEARCH_SHELF': {
+        // Cập nhật vị trí box theo nhân viên
+        this.deliveryManager.updateStaffCarryPosition(worker.carriedBoxId!, worker.sprite.x, worker.sprite.y)
+        
+        const box = (this.deliveryManager as any).boxes.find((b: any) => b.id === worker.carriedBoxId)
+        if (!box) {
+          worker.subState = 'SEARCH_BOX'
+          return
+        }
+
+        // Tìm kệ cần itemId này
+        const shelves = Object.values(furnitureStore.placedShelves) as any[]
+        let found = false
+        
+        for (const shelf of shelves) {
+          if (shelf.role !== 'selling') continue
+
+          // Tìm tier cùng itemId hoặc đang trống
+          const tierIdx = shelf.tiers.findIndex((t: any) => 
+            (t.itemId === box.itemId && t.slots.length < t.maxSlots) || 
+            (t.itemId === null)
+          )
+          
+          if (tierIdx !== -1) {
+            worker.targetShelfId = shelf.id
+            worker.targetTierIndex = tierIdx
+            worker.targetX = shelf.x + (worker.sprite.x < shelf.x ? -40 : 40)
+            worker.targetY = shelf.y
+            worker.subState = 'MOVE_TO_SHELF'
+            found = true
+            break
+          }
+        }
+
+        if (!found) {
+           // Không tìm thấy kệ phù hợp -> Về bãi trả lại thùng
+           const dz = (this.environmentManager as any).deliveryZone
+           worker.targetX = dz.x
+           worker.targetY = dz.y
+           worker.subState = 'RETURN_BOX'
+        }
+        break
+      }
+
+      case 'RETURN_BOX': {
+        this.deliveryManager.updateStaffCarryPosition(worker.carriedBoxId!, worker.sprite.x, worker.sprite.y)
+        if (this.moveToTarget(worker)) {
+          this.dropAnything(worker)
+          worker.subState = 'IDLE'
+        }
+        break
+      }
+
+      case 'MOVE_TO_SHELF': {
+        this.deliveryManager.updateStaffCarryPosition(worker.carriedBoxId!, worker.sprite.x, worker.sprite.y)
+        if (this.moveToTarget(worker)) {
+          worker.subState = 'RESTOCKING'
+          worker.actionTimer = this.scene.time.now + 1000 // Delay 1s để đổ hàng
+        }
+        break
+      }
+
+      case 'RESTOCKING': {
+        this.deliveryManager.updateStaffCarryPosition(worker.carriedBoxId!, worker.sprite.x, worker.sprite.y)
+        const box = (this.deliveryManager as any).boxes.find((b: any) => b.id === worker.carriedBoxId)
+        if (!box) {
+          worker.subState = 'SEARCH_BOX'
+          return
+        }
+
+        // Thực hiện nạp hàng
+        const placed = furnitureStore.fillTierFromHand(worker.targetShelfId!, box.itemId, worker.targetTierIndex!, box.quantity)
+        
+        if (placed > 0) {
+          box.quantity -= placed
+          // Cập nhật text trên box
+          box.qtyLabel.setText(`×${box.quantity}`)
+        }
+
+        if (box.quantity <= 0) {
+          worker.subState = 'DISPOSE_BOX'
+        } else {
+          // Thùng còn hàng -> Tìm kệ tiếp theo cho món này
+          worker.subState = 'SEARCH_SHELF'
+        }
+        break
+      }
+
+      case 'DISPOSE_BOX': {
+        this.deliveryManager.removeBoxById(worker.carriedBoxId!)
+        worker.carriedBoxId = null
+        worker.subState = 'SEARCH_BOX'
+        break
+      }
+    }
+  }
+
+  private moveToTarget(worker: WorkerNPC): boolean {
+    const dist = Phaser.Math.Distance.Between(worker.sprite.x, worker.sprite.y, worker.targetX, worker.targetY)
+    if (dist > 15) {
+      this.scene.physics.moveTo(worker.sprite, worker.targetX, worker.targetY, this.workerSpeed)
+      return false
+    } else {
+      worker.sprite.body?.velocity.set(0)
+      return true
     }
   }
 
@@ -167,10 +393,12 @@ export class StaffManager {
     worker.statusText.setPosition(worker.sprite.x, worker.sprite.y - 35)
     
     let label = ''
-    switch (worker.state) {
-      case 'CHECKOUT': label = 'Working (Cashier)'; break
-      case 'RESTOCK': label = 'Working (Shelving)'; break
-      default: label = 'Resting'; break
+    if (worker.duty === 'CHECKOUT') {
+      label = 'Checkout'
+    } else if (worker.duty === 'RESTOCK') {
+      label = `Restock: ${worker.subState}`
+    } else {
+      label = 'Resting'
     }
     worker.statusText.setText(label)
 

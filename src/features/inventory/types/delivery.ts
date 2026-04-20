@@ -17,6 +17,9 @@ export interface DeliveryBox {
   type: DeliveryBoxType
   quantity: number        // số lượng trong thùng này
   phaserSpriteKey?: string // 'box_sprite' hoặc furniture sprite key
+  isBeingCarried?: boolean
+  carrierType?: 'player' | 'npc' | null
+  carrierId?: string | null
 }
 
 export interface SetPriceTarget {

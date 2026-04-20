@@ -368,14 +368,14 @@ export class EnvironmentManager {
     const door = this.doorLocation
 
     this.deliveryZone = {
-      x: door.x - 220,
+      x: door.x - 350,
       y: door.y + 100,
       width: 200,
       height: 50,
     }
 
     this.warpGateZone = {
-      x: door.x + 220,
+      x: door.x + 350,
       y: door.y + 100,
     }
 
@@ -406,6 +406,21 @@ export class EnvironmentManager {
     this.sidewalkGraphics.lineStyle(2, 0xffffff, 0.15)
     const laneY = sidewalkY + sidewalkH / 2
     this.sidewalkGraphics.lineBetween(sidewalkX, laneY, sidewalkX + sidewalkW, laneY)
+
+    // 2. Vẽ Khu vực nghỉ ngơi của Nhân viên (Idle Zone)
+    const iz = this.idleStaffZone
+    this.sidewalkGraphics.fillStyle(0x27ae60, 0.3) // Xanh lá mờ
+    this.sidewalkGraphics.lineStyle(2, 0x2ecc71, 0.5)
+    
+    const izRect = new Phaser.Geom.Rectangle(iz.x - iz.width/2, iz.y - 20, iz.width, 40)
+    this.sidewalkGraphics.fillRectShape(izRect)
+    this.sidewalkGraphics.strokeRectShape(izRect)
+
+    this.scene.add.text(iz.x, iz.y + 25, "STAFF REST AREA", {
+      fontSize: '9px',
+      color: '#2ecc71',
+      fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(DEPTH.FLOOR + 1)
   }
 
   /**

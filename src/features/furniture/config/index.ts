@@ -66,5 +66,16 @@ export const FURNITURE_ITEMS: Record<string, FurnitureItemInfo> = {
     capacityStr: '1 Staff',
     description: 'Quầy thu ngân tiêu chuẩn. Nơi khách mang hàng tới thanh toán.',
     role: 'cashier'
+  },
+  'warehouse_shelf': {
+    id: 'warehouse_shelf',
+    name: 'Warehouse Rack',
+    buyPrice: 200,
+    requiredLevel: 1,
+    capacityStr: '400 Slots (10x40)',
+    description: 'Kệ kho công nghiệp. Sức chứa cực lớn. NPCs KHÔNG mua từ đây.',
+    numTiers: 10,
+    slotsPerTier: 40,
+    role: 'storage'
   }
 };

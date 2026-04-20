@@ -2,12 +2,15 @@ import Phaser from 'phaser'
 import playerImg from '../assets/images/player.svg'
 import npcImg from '../assets/images/npc.svg'
 import shelfImg from '../assets/images/shelf.svg'
+import warehouseShelfImg from '../assets/images/warehouse_shelf.svg'
 import cashierImg from '../assets/images/cashier.svg'
 import { useGameStore } from '../features/shop-ui/store/gameStore'
 import { useStatsStore } from '../features/stats/store/statsStore'
 import { useCustomerStore } from '../features/customer/store/customerStore'
 import { useStaffStore } from '../features/staff/store/staffStore'
 import { WORKERS, SPEED_TO_MS } from '../features/staff/config'
+import { useDeliveryStore } from '../features/inventory/store/deliveryStore'
+import { useFurnitureStore } from '../features/furniture/store/furnitureStore'
 import { DEPTH } from '../features/environment/config'
 import { EnvironmentManager } from '../features/environment/managers/EnvironmentManager'
 import { FurnitureManager } from '../features/furniture/managers/FurnitureManager'
@@ -99,6 +102,7 @@ export default class MainScene extends Phaser.Scene {
     this.load.spritesheet('player', playerImg, { frameWidth: 32, frameHeight: 32 })
     this.load.spritesheet('npc', npcImg, { frameWidth: 32, frameHeight: 32 })
     this.load.image('shelf', shelfImg)
+    this.load.image('warehouse_shelf', warehouseShelfImg)
     this.load.image('cashier', cashierImg)
     this.load.image('gym_building', gymBuildingImg)
   }
@@ -119,8 +123,8 @@ export default class MainScene extends Phaser.Scene {
     this.environmentManager = new EnvironmentManager(this)
     this.furnitureManager = new FurnitureManager(this)
     this.npcManager = new NPCManager(this, this.environmentManager)
-    this.staffManager = new StaffManager(this, this.environmentManager)
     this.deliveryManager = new DeliveryManager(this, this.environmentManager)
+    this.staffManager = new StaffManager(this, this.environmentManager, this.deliveryManager)
 
     // 5. Khởi tạo Gym Leaders (chỉ lần đầu) - TRƯỚC khi init Town để tránh Race Condition
     const gymStore = useGymStore()
@@ -547,12 +551,20 @@ export default class MainScene extends Phaser.Scene {
       return
     }
 
-    // Ưu tiên 1: Giao hàng lên kệ (nếu đang cầm box)
+    // Ưu tiên 1: Giao hàng lên kệ (nếu đang cầm box) hoặc mở Build Mode (nếu cầm Furniture)
     if (this.deliveryManager) {
+      const deliveryStore = useDeliveryStore()
       const nearestShelfForDelivery = this.getNearestFromGroup(this.furnitureManager.shelvesGroup, 70)
+      
       if (nearestShelfForDelivery) {
         const handled = this.deliveryManager.handleShelfInteraction(nearestShelfForDelivery.getData('id'))
         if (handled) return
+      } else if (deliveryStore.carriedBox?.type === 'furniture') {
+        const furnitureStore = useFurnitureStore()
+        furnitureStore.startBuildMode(deliveryStore.carriedBox.itemId)
+        this.deliveryManager.removeCarriedBox()
+        deliveryStore.dropBox()
+        return
       }
     }
 
