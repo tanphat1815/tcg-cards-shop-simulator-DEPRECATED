@@ -258,65 +258,80 @@ export class EnvironmentManager {
       this.shopBounds = { x: startX, y: startY, w: shopW, h: shopH }
       this.doorLocation = { x: startX + shopW / 2, y: startY + shopH }
 
-      // Cập nhật Camera Bounds
-      this.scene.cameras.main.setBounds(0, 0, 5500, 3000)
+      // Camera Bounds — clamp strictly to the shop interior so the black void
+      // behind the walls is NEVER visible. We add SIDE_T (32px) padding on each
+      // side to account for the wall sprite width, so the camera stops exactly
+      // at the outer edge of the visible wall tiles.
+      const CAM_SIDE_PAD = 32  // matches SIDE_T wall thickness
+      const CAM_TOP_PAD  = 48  // matches wallTopSprite height
+      this.scene.cameras.main.setBounds(
+        startX - CAM_SIDE_PAD,
+        startY - CAM_TOP_PAD,
+        shopW + CAM_SIDE_PAD * 2,
+        shopH + CAM_TOP_PAD + CAM_SIDE_PAD
+      )
 
       // 0. Street/Background
       this.outsideGraphics.clear()
       this.outsideGraphics.fillStyle(0x1a1a1a, 1) // Dark street
       this.outsideGraphics.fillRect(0, 0, 5500, 3000)
 
-      // 1. FLOOR — dùng TileSprite để lặp texture tự động
+      // 1. FLOOR — Layer 1: Always below everything.
       if (!this.floorTileSprite) {
         this.floorTileSprite = this.scene.add.tileSprite(startX, startY, shopW, shopH, TEX.FLOOR_TILE)
           .setOrigin(0, 0)
-          .setDepth(DEPTH.FLOOR)
+          .setDepth(DEPTH.LAYER1_FLOOR)
       } else {
         this.floorTileSprite.setPosition(startX, startY)
         this.floorTileSprite.setSize(shopW, shopH)
+        this.floorTileSprite.setDepth(DEPTH.LAYER1_FLOOR)
       }
 
-      // 2. WALL TOP (North) — tường trên cùng có "mái" nhô lên che nhân vật
-      // Chiều cao visual của tường = 48px. Origin (0,1) để đáy tường nằm đúng y.
+      // 2. WALL TOP (North) — Layer 4: The overhang that hides the player's head
+      // when they walk toward the top wall. Must ALWAYS be above Layer 3 entities.
+      // Height = 48px texture; origin (0, 1) so the base of the wall sits at startY.
       if (!this.wallTopSprite) {
         this.wallTopSprite = this.scene.add.tileSprite(startX, startY, shopW, 48, TEX.WALL_TOP)
           .setOrigin(0, 1)
-          .setDepth(startY) // R2: Y-sort theo đáy tường
+          .setDepth(DEPTH.LAYER4_WALL_TOP)
       } else {
         this.wallTopSprite.setPosition(startX, startY)
         this.wallTopSprite.setSize(shopW, 48)
-        this.wallTopSprite.setDepth(startY)
+        this.wallTopSprite.setDepth(DEPTH.LAYER4_WALL_TOP)
       }
 
-      // 3. WALL SIDES (trái, phải, dưới) — dùng wall_side
+      // 3. WALL SIDES (left, right, bottom) — Layer 2: Low wall bases that sit
+      // BEHIND entities so feet can collide with physics walls while the wall
+      // visual base is visible under the entity sprite.
       this.wallSideSprites.forEach(s => s.destroy())
       this.wallSideSprites = []
 
-      const SIDE_T = 32 // chiều dày visual tường bên
+      const SIDE_T = 32 // visual wall thickness in pixels
       // Left wall
       this.wallSideSprites.push(
         this.scene.add.tileSprite(startX - SIDE_T, startY, SIDE_T, shopH, TEX.WALL_SIDE)
-          .setOrigin(0, 0).setDepth(DEPTH.WALL)
+          .setOrigin(0, 0).setDepth(DEPTH.LAYER2_WALL_BASE)
       )
       // Right wall
       this.wallSideSprites.push(
         this.scene.add.tileSprite(startX + shopW, startY, SIDE_T, shopH, TEX.WALL_SIDE)
-          .setOrigin(0, 0).setDepth(DEPTH.WALL)
+          .setOrigin(0, 0).setDepth(DEPTH.LAYER2_WALL_BASE)
       )
-      // Bottom walls (chừa cửa)
+      // Bottom walls (gap for door)
       const doorWidth = 80
       const sideWallW = (shopW - doorWidth) / 2
       this.wallSideSprites.push(
         this.scene.add.tileSprite(startX, startY + shopH, sideWallW, SIDE_T, TEX.WALL_SIDE)
-          .setOrigin(0, 0).setDepth(DEPTH.WALL)
+          .setOrigin(0, 0).setDepth(DEPTH.LAYER2_WALL_BASE)
       )
       this.wallSideSprites.push(
-        this.scene.add.tileSprite(startX + shopW - sideWallW, startY + shopH, sideWallW, SIDE_T, TEX.WALL_SIDE)
-          .setOrigin(0, 0).setDepth(DEPTH.WALL)
+        this.scene.add.tileSprite(startX + shopW - sideWallW, startY + shopH, sideWallW, SIDE_T, TEX.LAYER2_WALL_BASE)
+          .setOrigin(0, 0).setDepth(DEPTH.LAYER2_WALL_BASE)
       )
 
-      // XỬ LÝ PREVIEW MỞ RỘNG (BLUEPRINT/GLOW)
+      // XỬ LÝ PREVIEW MỞ RỘNG (BLUEPRINT/GLOW) — Layer 4 so it's visible above entities
       if (this.scene.previewGraphics) {
+        this.scene.previewGraphics.setDepth(DEPTH.LAYER4_WALL_TOP - 1)
         this.scene.previewGraphics.clear()
         if (store.settings.showExpansionPreview) {
           const nextDim = getExpansionDimensions(store.expansionLevel + 1)

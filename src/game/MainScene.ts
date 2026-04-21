@@ -12,7 +12,7 @@ import wallTopImg from '../assets/images/wall_top.png'
 import wallSideImg from '../assets/images/wall_side.png'
 import sidewalkTileImg from '../assets/images/sidewalk_tile.png'
 import { TEX } from '../features/environment/assetKeys'
-import { applyDynamicYSort, applyFootCollider } from '../features/environment/ySortUtils'
+import { applyDynamicYSort, applyStaticYSort, applyFootCollider } from '../features/environment/ySortUtils'
 import { useGameStore } from '../features/shop-ui/store/gameStore'
 import { useStatsStore } from '../features/stats/store/statsStore'
 import { useCustomerStore } from '../features/customer/store/customerStore'
@@ -170,32 +170,36 @@ export default class MainScene extends Phaser.Scene {
     this.setupUI()
 
     // 4. Thiết lập vật lý và môi trường khởi đầu
+    // Physics world is large to accommodate Town area.
+    // Camera bounds will be tightened to shop walls by refreshEnvironment().
     this.physics.world.setBounds(0, 0, 5500, 3000)
-    this.cameras.main.setBounds(0, 0, 5500, 3000)
+    this.cameras.main.setBounds(0, 0, 5500, 3000) // temporary; overwritten below
     this.environmentManager.initializeEnvironment()
     this.furnitureManager.initializeFurniture()
     this.townManager.initializeTown()
 
     // 5. Khởi tạo Nhân vật người chơi (Đặt tại cửa shop)
-    // ==================== SPAWN PLAYER (2.5D) ====================
+    // ==================== SPAWN PLAYER (2.5D Stardew Style) ====================
     const doorLoc = this.environmentManager.getDoorLocation()
     this.player = this.physics.add.sprite(doorLoc.x, doorLoc.y - 50, TEX.PLAYER, 0)
 
-    // R1: Foot Anchor — origin giữa-đáy
+    // R1: Foot Anchor — (x, y) represents the FOOT position (bottom-center).
     this.player.setOrigin(0.5, 1)
 
-    // R3: Foot Collider — hitbox chỉ 30% phần đáy
+    // R3: Foot Collider — only the bottom 30% of the sprite is solid.
+    // This allows the player's body to visually overlap shelves/walls
+    // while the feet correctly collide with the base physics bodies.
     applyFootCollider(this.player, 0.3)
 
-    // Physics cơ bản
+    // Physics
     this.player.setCollideWorldBounds(true)
 
-    // Ban đầu depth = y để Y-sort ngay lập tức (cập nhật liên tục trong update)
-    this.player.setDepth(this.player.y)
+    // Initial depth via Y-sort (updated every frame in update())
+    applyDynamicYSort(this.player)
 
-    // Animation mặc định — đứng quay xuống
+    // Default animation — stand facing down
     this.player.anims.play('player-down', true)
-    this.player.anims.stop() // Đứng im ở frame 0
+    this.player.anims.stop()
 
     // 6. Cấu hình va chạm (Collisions)
     this.physics.add.collider(this.player, this.environmentManager.wallsGroup)
@@ -207,8 +211,10 @@ export default class MainScene extends Phaser.Scene {
     this.setupInputs()
 
     // 8. Cấu hình Camera (Follow Player)
-    this.cameras.main.startFollow(this.player, true, 0.05, 0.05)
-    this.cameras.main.setZoom(1)
+    // Zoom 2.5x creates the cozy Stardew Valley close-up feel.
+    // startFollow lerp values (0.08, 0.08) give smooth but responsive tracking.
+    this.cameras.main.setZoom(2.5)
+    this.cameras.main.startFollow(this.player, true, 0.08, 0.08)
 
     // 9. Đăng ký Store Subscriptions
     this.setupStoreSubscriptions(gameStore)
@@ -711,11 +717,11 @@ export default class MainScene extends Phaser.Scene {
       isMoving = true
     }
 
-    // Chuẩn hoá vector đường chéo để không đi nhanh gấp √2
+    // Normalize diagonal movement so speed is consistent
     if (isMoving) {
       this.player.body!.velocity.normalize().scale(speed)
 
-      // R4: Chọn hướng animation theo trục lớn hơn
+      // R4: Choose animation direction based on dominant axis
       const vx = this.player.body!.velocity.x
       const vy = this.player.body!.velocity.y
 
@@ -725,11 +731,13 @@ export default class MainScene extends Phaser.Scene {
         this.player.anims.play(vy < 0 ? 'player-up' : 'player-down', true)
       }
     } else {
-      // Idle — giữ nguyên hướng mặt, chỉ dừng cycle tại frame hiện tại
+      // Idle — freeze at current frame
       if (this.player.anims.isPlaying) {
         this.player.anims.stop()
       }
     }
+    // R2: Y-Sort is applied every frame in update() via applyDynamicYSort(this.player)
+    // — do NOT call setDepth here to avoid double-writes.
   }
 
   /**

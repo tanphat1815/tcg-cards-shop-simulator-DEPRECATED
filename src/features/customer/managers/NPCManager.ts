@@ -98,10 +98,10 @@ export class NPCManager {
       TEX.NPC,
       0 // Frame đầu tiên (down-idle)
     )
-    npcSprite.setOrigin(0.5, 1)              // R1 — foot anchor
-    applyFootCollider(npcSprite, 0.3)        // R3 — chỉ 30% đáy là collider
+    npcSprite.setOrigin(0.5, 1)              // R1 — foot anchor (bottom-center)
+    applyFootCollider(npcSprite, 0.3)        // R3 — only bottom 30% is a collider
     npcSprite.setCollideWorldBounds(true)
-    npcSprite.setDepth(npcSprite.y)          // R2 — ban đầu y-sort (sẽ update mỗi frame)
+    applyDynamicYSort(npcSprite)             // R2 — initial Y-sort depth (updated every frame)
 
     // Quyết định mục đích: 30% khách đến để đánh bài, 70% đến để mua hàng
     const isPlayer = Math.random() < 0.3
@@ -198,7 +198,9 @@ export class NPCManager {
   private updateNPCAnimation(customer: Customer) {
     const sprite = customer.sprite
 
-    // Y-SORT (R2) — BẮT BUỘC mỗi frame, TRƯỚC khi chọn anim
+    // Y-SORT (R2) — MUST run every frame, BEFORE choosing animation direction.
+    // Sets depth = LAYER3_OBJECTS + sprite.y so NPCs correctly sort with
+    // the player and furniture within Layer 3.
     applyDynamicYSort(sprite)
 
     if (sprite.body && sprite.body.velocity.lengthSq() > 0) {

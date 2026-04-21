@@ -3,24 +3,34 @@
  * Higher values are drawn on top of lower values.
  */
 export const DEPTH = {
+  // ── LAYER 1: Floor (always bottom) ──────────────────────────────
+  LAYER1_FLOOR: 10,
+
+  // ── LAYER 2: Wall Base / low walls (behind entities' feet) ──────
+  LAYER2_WALL_BASE: 20,
+
+  // ── LAYER 3: Dynamic Y-Sort Objects ─────────────────────────────
+  // Formula: LAYER3_OBJECTS + sprite.y
+  // With zoom 2.5x and shop ~600px tall, y range ≈ 1000–1600.
+  // So Layer 3 objects occupy depth range ~1100–1700.
+  LAYER3_OBJECTS: 100,
+
+  // ── LAYER 4: Wall Top / overhangs (always above entities) ───────
+  LAYER4_WALL_TOP: 9000,
+
+  // ── Legacy aliases (kept for backwards compatibility) ───────────
   OUTSIDE: 1,
-  FLOOR: 2,           // TileSprite sàn
-  WALL_GRAPHICS: 3,   // (legacy — có thể xoá nếu không còn ai dùng)
+  FLOOR: 10,           // alias → LAYER1_FLOOR
+  WALL_GRAPHICS: 20,   // alias → LAYER2_WALL_BASE
+  FURNITURE: 100,      // base; actual depth set via applyStaticYSort
+  CASHIER: 100,
+  TABLE: 100,
+  NPC: 100,
+  PLAYER: 100,
+  WALL: 20,            // alias → LAYER2_WALL_BASE
 
-  // 🆕 Y-SORT RANGE: 10 ~ 10,000 dành cho entity động/tĩnh dùng setDepth(y)
-
-  // Giữ các key cũ để code legacy không vỡ, nhưng KHUYẾN CÁO không dùng cho sprite động.
-  FURNITURE: 10,
-  CASHIER: 10,
-  TABLE: 10,
-  NPC: 15,
-  PLAYER: 20,
-
-  // --- Wall vẫn có giá trị base, nhưng sẽ override bằng setDepth(y) trong refreshEnvironment() ---
-  WALL: 50,
-
-  // --- UI luôn trên cùng ---
-  UI_TEXT: 10001,
+  // ── UI (always on top of everything) ────────────────────────────
+  UI_TEXT: 9500,
   UI: 11000,
   EDIT_OVERLAY: 10900,
   GHOST: 10100,

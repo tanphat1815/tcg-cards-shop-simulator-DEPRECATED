@@ -85,10 +85,10 @@ export class StaffManager {
           TEX.STAFF,   // ← Đổi từ 'npc' sang TEX.STAFF (có uniform riêng)
           0
         )
-        sprite.setOrigin(0.5, 1)             // R1
-        applyFootCollider(sprite, 0.3)       // R3
+        sprite.setOrigin(0.5, 1)             // R1: foot anchor
+        applyFootCollider(sprite, 0.3)       // R3: bottom 30% collider
         sprite.setCollideWorldBounds(true)
-        sprite.setDepth(sprite.y)            // R2 initial
+        applyDynamicYSort(sprite)            // R2: initial Y-sort depth
         
         const statusText = this.scene.add.text(sprite.x, sprite.y - 55, '', {
             fontSize: '10px',
@@ -407,7 +407,7 @@ export class StaffManager {
    *   nhưng tách namespace để sau này artist phân biệt rõ).
    */
   private updateVisuals(worker: WorkerNPC) {
-    // R2: Y-SORT — BẮT BUỘC trước mọi thao tác khác
+    // R2: Y-SORT — MUST be first. Depth = LAYER3_OBJECTS + sprite.y.
     applyDynamicYSort(worker.sprite)
 
     // Label vị trí — offset đúng chiều cao sprite 48px

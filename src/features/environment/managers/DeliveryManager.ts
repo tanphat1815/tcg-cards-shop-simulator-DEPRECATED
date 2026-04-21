@@ -3,7 +3,7 @@ import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import { EnvironmentManager } from './EnvironmentManager'
 import { DEPTH } from '../config'
 import { TEX } from '../assetKeys'
-import { applyDynamicYSort, applyFootCollider } from '../ySortUtils'
+import { applyDynamicYSort, applyFootCollider, applyStaticYSort } from '../ySortUtils'
 import { useFurnitureStore } from '../../furniture/store/furnitureStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { useUIStore } from '../../shop-ui/store/uiStore'
@@ -88,16 +88,18 @@ export class DeliveryManager {
     this.checkCarriedBoxConsumed()
     this.syncToStore()
     
-    // 🆕 R2: Y-SORT cho mọi box động
+    // R2: Y-SORT for all live boxes every frame
     for (const box of this.boxes) {
       if (box.isBeingCarried) {
-        // Box bám theo carrier và LUÔN vẽ trên carrier + 1 (vì depth carrier = carrier.y)
-        box.sprite.setDepth(box.sprite.y + 1)
+        // Carried box must render above the carrier entity.
+        // Since carrier depth = LAYER3_OBJECTS + carrier.y, add +1 to guarantee
+        // the box draws on top of the carrier sprite.
+        box.sprite.setDepth(DEPTH.LAYER3_OBJECTS + box.sprite.y + 1)
       } else {
         applyDynamicYSort(box.sprite)
       }
 
-      // Label đi theo sprite
+      // Keep labels positioned above the sprite
       if (box.label)    box.label.setPosition(box.sprite.x, box.sprite.y - 40)
       if (box.qtyLabel) box.qtyLabel.setPosition(box.sprite.x, box.sprite.y - 25)
     }
@@ -137,11 +139,12 @@ export class DeliveryManager {
 
     // ==================== SPAWN BOX (2.5D) ====================
     const boxSprite = this.scene.physics.add.sprite(spawnX, spawnY, TEX.BOX_ITEM)
-    boxSprite.setOrigin(0.5, 1)                // R1
-    applyFootCollider(boxSprite, 1.0)          // Box vuông → collider toàn bộ
+    boxSprite.setOrigin(0.5, 1)               // R1: foot anchor
+    applyFootCollider(boxSprite, 1.0)         // Box is cuboid — full-height collider
     boxSprite.setCollideWorldBounds(true)
     boxSprite.setBounce(0.3)
-    boxSprite.setDepth(boxSprite.y)            // R2 initial
+    // R2: Initial Y-sort depth (updated every frame in update() via applyDynamicYSort)
+    applyDynamicYSort(boxSprite)
     
     // Thêm vào physics group
     this.boxGroup.add(boxSprite)

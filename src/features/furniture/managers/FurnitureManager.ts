@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { DEPTH } from '../../environment/config'
 import { TEX } from '../../environment/assetKeys'
-import { applyFootCollider, applyStaticYSort } from '../../environment/ySortUtils'
+import { applyFootCollider, applyStaticYSort, applyDynamicYSort } from '../../environment/ySortUtils'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import type { ShelfData, PlayTableData, CashierData } from '../types'
 
@@ -89,17 +89,18 @@ export class FurnitureManager {
     // Sau khi sửa origin + scale + body, BẮT BUỘC refreshBody để StaticBody đồng bộ.
     sprite.refreshBody()
 
-    // R2: Static Y-Sort — 1 lần duy nhất khi spawn.
+    // R2: Static Y-Sort — called ONCE at spawn.
+    // Depth = LAYER3_OBJECTS + sprite.y (set inside applyStaticYSort).
     applyStaticYSort(sprite)
 
-    // Label thông tin shelf — đặt trên đỉnh sprite (sprite cao 96px, origin đáy → đỉnh = y - 96)
+    // Label — drawn above the shelf at Layer 4 so it's always readable.
     const text = this.scene.add.text(shelf.x, shelf.y - 100, this.getShelfInfo(shelf), {
       fontSize: '11px',
       fontStyle: 'bold',
       color: isDouble ? '#ffeb3b' : '#000',
       backgroundColor: isDouble ? '#212121' : '#fff',
       padding: { x: 4, y: 2 }
-    }).setOrigin(0.5).setDepth(DEPTH.UI)
+    }).setOrigin(0.5).setDepth(DEPTH.LAYER4_WALL_TOP - 500)
 
     this.shelfTexts[shelf.id] = text
   }
@@ -117,17 +118,17 @@ export class FurnitureManager {
     sprite.setOrigin(0.5, 1)
     if (isVertical) sprite.setAngle(90) // Xoay 90 độ nếu cần
     
-    applyFootCollider(sprite, 0.7) // Bàn chơi gần như phẳng
+    applyFootCollider(sprite, 0.7) // Play table is nearly flat
     sprite.refreshBody()
     applyStaticYSort(sprite)
 
-    // Label thông tin bàn — đặt trên đỉnh sprite
+    // Label — above entities
     const label = this.scene.add.text(table.x, table.y - 75, this.getTableInfo(table), {
       fontSize: '10px',
       color: '#fff',
       backgroundColor: 'rgba(0,0,0,0.5)',
       padding: { x: 2, y: 1 }
-    }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
+    }).setOrigin(0.5).setDepth(DEPTH.LAYER4_WALL_TOP - 500)
     
     this.tableVisuals[table.id] = { rect: sprite as any, label }
   }
