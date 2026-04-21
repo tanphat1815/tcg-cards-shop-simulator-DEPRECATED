@@ -184,19 +184,25 @@ export default class MainScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, 5500, 3000)
     this.cameras.main.setBackgroundColor('#000000')
     this.cameras.main.setZoom(AppConfig.GAME.CAMERA.ZOOM)
-    this.cameras.main.startFollow(this.player || { x: 0, y: 0 }, true, 0.05, 0.05)
-    
+
     if (AppConfig.GAME.CAMERA.CLAMP_BOUNDS) {
       this.cameras.main.setRoundPixels(true)
     }
+    
+    // 5. Khởi tạo Nhân vật người chơi (Đặt tại cửa shop)
+    // ==================== SPAWN PLAYER (2.5D Stardew Style) ====================
     this.environmentManager.initializeEnvironment()
     this.furnitureManager.initializeFurniture()
     this.townManager.initializeTown()
 
-    // 5. Khởi tạo Nhân vật người chơi (Đặt tại cửa shop)
-    // ==================== SPAWN PLAYER (2.5D Stardew Style) ====================
     const doorLoc = this.environmentManager.getDoorLocation()
+    console.log('[MainScene] Spawning player at:', doorLoc)
     this.player = this.physics.add.sprite(doorLoc.x, doorLoc.y - 50, TEX.PLAYER, 0)
+    
+    // Set camera follow AFTER player is created
+    this.cameras.main.startFollow(this.player, true, 0.05, 0.05)
+    // Snap camera to player immediately
+    this.cameras.main.centerOn(this.player.x, this.player.y)
 
     // R1: Foot Anchor — (x, y) represents the FOOT position (bottom-center).
     this.player.setOrigin(0.5, 1)

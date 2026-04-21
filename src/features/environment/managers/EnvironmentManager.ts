@@ -243,10 +243,8 @@ export class EnvironmentManager {
    * Khởi tạo môi trường shop ban đầu
    */
   initializeEnvironment() {
-    this.drawOutside()
-    this.drawFloor()
-    this.drawWalls()
-    this.updatePhysicalWalls()
+    console.log('[EnvironmentManager] Initializing Environment...')
+    this.refreshEnvironment()
   }
 
   /**
@@ -395,6 +393,7 @@ export class EnvironmentManager {
       this.computeExteriorZones()
       this.drawSidewalk()
       this.updatePhysicalWalls()
+      console.log('[EnvironmentManager] Refresh complete. Shop bounds:', this.shopBounds)
     } catch (err) {
       console.error("CRITICAL: EnvironmentManager.refreshEnvironment failed!", err)
     }
