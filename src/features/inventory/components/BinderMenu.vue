@@ -14,15 +14,9 @@ const detailStore = useCardDetailStore()
 
 const binderItems = computed(() => {
   return Object.keys(inventoryStore.personalBinder).map(cardId => {
-    // Tìm card từ tất cả sets đã load
-    let cardData = null
-    for (const setCards of Object.values(apiStore.setCardsCache)) {
-      cardData = setCards.find((c: any) => c.id === cardId)
-      if (cardData) break
-    }
     return {
       id: cardId,
-      card: cardData,
+      card: apiStore.flatCardMap[cardId] || null,
       quantity: inventoryStore.personalBinder[cardId]
     }
   })
@@ -53,24 +47,14 @@ const prevPage = () => {
   if (currentPage.value > 0) currentPage.value--
 }
 
+import { getRawPrice } from '../../shared/utils/currency'
+
 // ─── Value Calculation ─────────────────────────────────────────────────────
 const totalEstimatedValue = computed(() => {
   let total = 0
   binderItems.value.forEach(item => {
-    if (!item.card?.pricing) return
-    const tcg = item.card.pricing.tcgplayer
-    let price = 0
-    if (tcg) {
-      const categories = ['normal', 'holofoil', 'reverse', 'reverse-holofoil', 'unlimited', 'unlimited-holofoil']
-      for (const cat of categories) {
-        if (tcg[cat]?.marketPrice) { price = tcg[cat].marketPrice; break }
-        if (tcg[cat]?.midPrice) { price = tcg[cat].midPrice; break }
-      }
-    } else {
-      const cm = item.card.pricing.cardmarket
-      if (cm) price = cm.avg || cm.trend || cm.avg1 || cm.avg7 || 0
-    }
-    total += price * item.quantity
+    if (!item.card) return
+    total += getRawPrice(item.card) * item.quantity
   })
   return total.toFixed(2)
 })
@@ -122,7 +106,7 @@ onMounted(() => {
               <p>Trang này còn trống</p>
             </div>
             <div v-else class="cards-grid">
-              <div v-for="item in leftPageCards" :key="item.id" class="binder-card-slot">
+              <div v-for="item in leftPageCards" :key="item.id" v-memo="[item.id, item.quantity, !!item.card]" class="binder-card-slot">
                 <TcgCard 
                   v-if="item.card"
                   :card="item.card"
@@ -157,7 +141,7 @@ onMounted(() => {
               <p>Trang này còn trống</p>
             </div>
             <div v-else class="cards-grid">
-              <div v-for="item in rightPageCards" :key="item.id" class="binder-card-slot">
+              <div v-for="item in rightPageCards" :key="item.id" v-memo="[item.id, item.quantity, !!item.card]" class="binder-card-slot">
                 <TcgCard 
                   v-if="item.card"
                   :card="item.card"

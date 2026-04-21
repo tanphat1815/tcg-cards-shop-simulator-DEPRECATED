@@ -24,8 +24,7 @@ const profitPct = computed(() => {
   return ((customPrice.value / target.value.buyPrice - 1) * 100).toFixed(1)
 })
 
-const formatVND = (usd: number) =>
-  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(usd * 25000)
+import { formatVND } from '../../shared/utils/currency'
 
 function applyPrice() {
   if (!target.value) return

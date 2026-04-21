@@ -65,19 +65,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
 })
 
-function getMarketPrice(card: any): string {
-  const price = card?.pricing?.tcgplayer?.normal?.marketPrice ?? card?.pricing?.cardmarket?.avg ?? 'N/A';
-  return price !== 'N/A' ? `$${Number(price).toFixed(2)}` : 'N/A';
-}
-
-function getRawPrice(card: any): number {
-  const price = card?.pricing?.tcgplayer?.normal?.marketPrice ?? card?.pricing?.cardmarket?.avg ?? 0;
-  return Number(price);
-}
-
-const formatVND = (priceUsd: number) => {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(priceUsd * 25000)
-}
+import { formatVND, getRawPrice, getMarketPrice } from '../../shared/utils/currency'
 </script>
 
 <template>

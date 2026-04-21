@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import { useInventoryStore } from './inventoryStore'
-import { type StockItemInfo, SET_BLACKLIST } from '../config'
+import { type StockItemInfo, SET_BLACKLIST, MARKUP_PACK, MARKUP_BOX } from '../config'
 import { dbService } from '../../api/services/dbService'
+import { FALLBACK_SETS, FALLBACK_CARDS } from '../../api/config/fallbackData'
 
 const API_CACHE_VERSION = 'v5-pricing'
 
@@ -89,6 +91,7 @@ export interface TcgSetSummary {
   cardCount: number;
   releasedAt?: string;
   boosters?: string[];
+  evPrice?: number;
 }
 
 export const useApiStore = defineStore('api', {
@@ -97,7 +100,10 @@ export const useApiStore = defineStore('api', {
     shopItems: {} as Record<string, StockItemInfo>,
     isLoading: false,
     error: '',
+    /** Cache theo Set ID */
     setCardsCache: {} as Record<string, any[]>, 
+    /** Flat map để lookup nhanh O(1) theo Card ID: cardId -> Card Object */
+    flatCardMap: markRaw({}) as Record<string, any>,
   }),
   getters: {
     sortedShopItems: (state) => Object.values(state.shopItems).sort((a, b) => {
@@ -141,20 +147,42 @@ export const useApiStore = defineStore('api', {
             name: row.name,
             serie: { id: row.serieId, name: row.serieName },
             cardCount: row.cardCount,
-            evPrice: row.evPrice || Math.random() * 2, // Lấy EV hoặc mô phỏng nếu API db lỗi json
+            evPrice: row.evPrice || Math.random() * 2,
             boosters: []
           }));
           
           this.shopItems = await this.generateShopItemsFromSets(this.sets)
           this.mergeShopItemsIntoInventory()
           this.saveToStorage()
+        } else {
+          // No rows returned (DB might be empty or newly initialized)
+          this.loadFallbackData()
         }
       } catch (e) {
         this.error = 'Failed to initialize Local Database Shop data'
-        console.error(e)
+        console.warn('[ApiStore] SQLite initialization failed, using fallback data:', e)
+        this.loadFallbackData()
       } finally {
         this.isLoading = false
       }
+    },
+
+    /**
+     * Tải dữ liệu dự phòng (Fallback) khi database không khả dụng.
+     */
+    async loadFallbackData() {
+      console.log('[ApiStore] Loading Fallback Shop Data...');
+      this.sets = FALLBACK_SETS;
+      this.shopItems = await this.generateShopItemsFromSets(this.sets);
+      this.mergeShopItemsIntoInventory();
+      
+      // Inject fallback cards into cache
+      Object.entries(FALLBACK_CARDS).forEach(([setId, cards]) => {
+        this.setCardsCache[setId] = markRaw(cards);
+        cards.forEach(c => this.flatCardMap[c.id] = markRaw(c));
+      });
+      
+      this.saveToStorage();
     },
 
     saveToStorage() {
@@ -223,7 +251,7 @@ export const useApiStore = defineStore('api', {
           id: packId,
           name: `${set.name} Booster Pack`,
           buyPrice: packPrice, // Giá cửa hàng mua vào từ hệ thống
-          sellPrice: buildPrice(packPrice * 1.6), // Mặc định bán markup 60%
+          sellPrice: buildPrice(packPrice * MARKUP_PACK), // Base markup from config
           basePrice: basePackPrice,
           rarityBonusPercent: buildPrice(rarityBonusPercent),
           requiredLevel,
@@ -238,7 +266,7 @@ export const useApiStore = defineStore('api', {
           id: boxId,
           name: `${set.name} Booster Box (64 Packs)`,
           buyPrice: boxPrice,
-          sellPrice: buildPrice(boxPrice * 1.4), // Mặc định bán Box markup 40%
+          sellPrice: buildPrice(boxPrice * MARKUP_BOX), // Base markup from config
           basePrice: baseBoxPrice,
           rarityBonusPercent: buildPrice(rarityBonusPercent),
           requiredLevel: Math.max(requiredLevel, 5),
@@ -267,8 +295,10 @@ export const useApiStore = defineStore('api', {
       if (rows && rows.length > 0) {
         const card = processCardRow(rows[0]);
         const setId = card.set_id || 'misc';
-        if (!this.setCardsCache[setId]) this.setCardsCache[setId] = [];
-        this.setCardsCache[setId].push(card);
+        if (!this.setCardsCache[setId]) this.setCardsCache[setId] = markRaw([]);
+        const rawCard = markRaw(card);
+        this.setCardsCache[setId].push(rawCard);
+        this.flatCardMap[cardId] = rawCard;
         this.saveToStorage();
         return true
       }
@@ -279,8 +309,14 @@ export const useApiStore = defineStore('api', {
       if (this.setCardsCache[setId]) return this.setCardsCache[setId]
 
       const rows = await dbService.query('SELECT * FROM cards WHERE set_id = ?', [setId]);
-      const cards = (rows || []).map(processCardRow);
+      const cards = markRaw((rows || []).map(processCardRow));
       this.setCardsCache[setId] = cards;
+      
+      // Update flat map
+      cards.forEach((c: any) => {
+        if (c.id) this.flatCardMap[c.id] = c;
+      });
+      
       return cards
     },
 
@@ -291,13 +327,15 @@ export const useApiStore = defineStore('api', {
         [setId, count]
       );
       
-      const cards = (rows || []).map(processCardRow);
-
-      if (!this.setCardsCache[setId]) this.setCardsCache[setId] = [];
+      const cards = markRaw((rows || []).map(processCardRow));
+      
+      if (!this.setCardsCache[setId]) this.setCardsCache[setId] = markRaw([]);
       for (const card of cards) {
-        if (!this.setCardsCache[setId].find((c: any) => c.id === card.id)) {
-          this.setCardsCache[setId].push(card)
+        const rawCard = markRaw(card);
+        if (!this.setCardsCache[setId].find((c: any) => c.id === rawCard.id)) {
+          this.setCardsCache[setId].push(rawCard)
         }
+        if (rawCard.id) this.flatCardMap[rawCard.id] = rawCard;
       }
       this.saveToStorage()
       return cards

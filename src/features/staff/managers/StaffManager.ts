@@ -402,6 +402,8 @@ export class StaffManager {
     }
   }
 
+  private lastStatusUpdateTime: number = 0
+
   /**
    * Cập nhật diện mạo của worker mỗi frame.
    * 
@@ -418,15 +420,20 @@ export class StaffManager {
     // Label vị trí — offset đúng chiều cao sprite 48px
     worker.statusText.setPosition(worker.sprite.x, worker.sprite.y - 55)
 
-    let label = ''
-    if (worker.duty === 'CHECKOUT') {
-      label = 'Checkout'
-    } else if (worker.duty === 'RESTOCK') {
-      label = `Restock: ${worker.subState}`
-    } else {
-      label = 'Resting'
+    // Throttle status text updates to every 200ms
+    if (this.scene.time.now > this.lastStatusUpdateTime + 200) {
+      this.lastStatusUpdateTime = this.scene.time.now
+      
+      let label = ''
+      if (worker.duty === 'CHECKOUT') {
+        label = 'Checkout'
+      } else if (worker.duty === 'RESTOCK') {
+        label = `Restock: ${worker.subState}`
+      } else {
+        label = 'Resting'
+      }
+      worker.statusText.setText(label)
     }
-    worker.statusText.setText(label)
 
     const anims = worker.sprite.anims
     const vx = worker.sprite.body?.velocity.x || 0
@@ -444,5 +451,16 @@ export class StaffManager {
     if (Math.abs(vx) < 10 && Math.abs(vy) < 10) {
       if (anims.isPlaying) anims.stop()
     }
+  }
+
+  /**
+   * Giải phóng tài nguyên khi Manager bị hủy.
+   */
+  destroy() {
+    this.workers.forEach(worker => {
+      worker.sprite.destroy()
+      worker.statusText.destroy()
+    })
+    this.workers.clear()
   }
 }

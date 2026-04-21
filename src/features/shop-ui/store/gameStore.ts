@@ -186,15 +186,14 @@ export const useGameStore = defineStore('game', {
      * Tích hợp loadSave từ tất cả các module.
      */
     loadSave() {
-      // BƯỚC 0: XÓA TOÀN BỘ save cũ (Yêu cầu bởi REFACTOR_SUPPLEMENT.md)
-      // localStorage.removeItem('tcg-shop-save')
-      // localStorage.removeItem('tcg-shop-api-cache')
-      // console.log('[GameStore] Save data cleared due to refactor. Starting fresh.')
-
       const saved = localStorage.getItem('tcg-shop-save')
       if (saved) {
         try {
-          const parsed = JSON.parse(saved)
+          const rawParsed = JSON.parse(saved)
+          
+          // Sửa lỗi và gán các giá trị mặc định nếu dữ liệu Save bị hỏng hoặc thiếu trường
+          const parsed = this.sanitizeSaveData(rawParsed)
+
           useStatsStore().loadStats(parsed)
           useInventoryStore().loadInventory(parsed)
           useFurnitureStore().loadFurniture(parsed)
@@ -204,11 +203,41 @@ export const useGameStore = defineStore('game', {
           useDeliveryStore().activeBoxes = parsed.deliveryBoxes || []
           usePlayerHandStore().loadHand(parsed)
           
-          useApiStore().initSeriesShop()
+          console.log('[GameStore] Game loaded successfully')
         } catch (e) {
-          console.error("Lỗi nghiêm trọng khi đọc file save", e)
+          console.error("[GameStore] Lỗi nghiêm trọng khi đọc file save. Có thể dữ liệu đã bị hỏng.", e)
+          // Tùy chọn: Reset hoặc thông báo cho người dùng
         }
       }
+      
+      // BẮT BUỘC: Luôn khởi tạo Shop API kể cả khi không có save hoặc load lỗi
+      useApiStore().initSeriesShop()
+    },
+
+    /**
+     * Kiểm tra và làm sạch dữ liệu Save giúp hệ thống chống crash (Robustness).
+     */
+    sanitizeSaveData(data: any) {
+      const safe = { ...data }
+      
+      // Đảm bảo các thuộc tính cơ bản luôn tồn tại
+      safe.money = Number(data.money) || 1000
+      safe.level = Number(data.level) || 1
+      safe.currentExp = Number(data.currentExp) || 0
+      safe.expansionLevel = Number(data.expansionLevel) || 0
+      safe.currentDay = Number(data.currentDay) || 1
+      
+      // Đảm bảo Map/Object không bị null
+      safe.shopInventory = data.shopInventory || {}
+      safe.personalBinder = data.personalBinder || {}
+      safe.placedShelves = data.placedShelves || {}
+      safe.placedTables = data.placedTables || {}
+      safe.placedCashiers = data.placedCashiers || {}
+      safe.purchasedFurniture = data.purchasedFurniture || []
+      safe.gymLeaders = data.gymLeaders || []
+      safe.deliveryBoxes = data.deliveryBoxes || []
+      
+      return safe
     },
 
     /**

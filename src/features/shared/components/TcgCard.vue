@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-
 import { isHighRarity, getRarityBadge } from '../../inventory/config/rarityRegistry'
+import { formatVND, getRawPrice, getMarketPrice } from '../utils/currency'
 
 const emit = defineEmits(['click'])
 
@@ -17,47 +17,6 @@ const props = defineProps<{
 }>()
 
 const imageLoaded = ref(false)
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-function getMarketPrice(card: any): string {
-  if (!card?.pricing) return 'N/A'
-  const tcg = card.pricing.tcgplayer
-  if (tcg) {
-    const categories = ['normal', 'holofoil', 'reverse', 'reverse-holofoil', 'unlimited', 'unlimited-holofoil']
-    for (const cat of categories) {
-      if (tcg[cat]?.marketPrice) return `$${tcg[cat].marketPrice.toFixed(2)}`
-      if (tcg[cat]?.midPrice) return `$${tcg[cat].midPrice.toFixed(2)}`
-    }
-  }
-  const cm = card.pricing.cardmarket
-  if (cm) {
-    const val = cm.avg || cm.trend || cm.avg1 || cm.avg7
-    if (val) return `$${val.toFixed(2)}`
-  }
-  return 'N/A'
-}
-
-function getRawPrice(card: any): number {
-  if (!card?.pricing) return 0
-  const tcg = card.pricing.tcgplayer
-  if (tcg) {
-    const categories = ['normal', 'holofoil', 'reverse', 'reverse-holofoil', 'unlimited', 'unlimited-holofoil']
-    for (const cat of categories) {
-      if (tcg[cat]?.marketPrice) return Number(tcg[cat].marketPrice)
-      if (tcg[cat]?.midPrice) return Number(tcg[cat].midPrice)
-    }
-  }
-  const cm = card.pricing.cardmarket
-  if (cm) {
-    const val = cm.avg || cm.trend || cm.avg1 || cm.avg7
-    if (val) return Number(val)
-  }
-  return 0
-}
-
-const formatVND = (priceUsd: number) => {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(priceUsd * 25000)
-}
 </script>
 
 <template>

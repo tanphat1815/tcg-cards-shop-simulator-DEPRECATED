@@ -14,6 +14,10 @@ export interface StockItemInfo {
   generation?: string; // e.g. "GENERATION IV"
 }
 
+// --- ECONOMY CONFIG ---
+export const MARKUP_PACK = 1.6; // 60% profit
+export const MARKUP_BOX = 1.4;  // 40% profit
+
 export const STOCK_ITEMS: Record<string, StockItemInfo> = {
   // Empty for now, will be populated by API or defined here
 };

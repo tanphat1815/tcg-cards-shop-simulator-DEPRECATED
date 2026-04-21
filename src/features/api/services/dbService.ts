@@ -16,49 +16,75 @@ export class DBService {
     return DBService.instance;
   }
 
+  private _isReady = false;
+  public get isReady() { return this._isReady; }
+
   private init() {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = new Promise((resolve, reject) => {
-      // Vite special syntax for workers
-      this.worker = new Worker(
-        new URL('./dbWorker.ts', import.meta.url),
-        { type: 'module' }
-      );
+      // Set a hard timeout for DB initialization (5 seconds)
+      const timeout = setTimeout(() => {
+        reject(new Error('Database initialization timeout'));
+      }, 5000);
 
-      this.worker.onmessage = (event) => {
-        const { results, error, id, type: eventType } = event.data;
+      try {
+        // Vite special syntax for workers
+        this.worker = new Worker(
+          new URL('./dbWorker.ts', import.meta.url),
+          { type: 'module' }
+        );
 
-        if (eventType === 'INIT_SUCCESS') {
-          console.log('🚀 DB Service: Worker initialized');
-          resolve();
-          return;
-        }
+        this.worker.onmessage = (event) => {
+          const { results, error, id, type: eventType } = event.data;
 
-        if (eventType === 'INIT_ERROR') {
-          reject(new Error(error));
-          return;
-        }
-
-        const callback = this.queryCallbacks.get(id);
-        if (callback) {
-          if (eventType === 'QUERY_SUCCESS') {
-            callback.resolve(results);
-          } else {
-            callback.reject(new Error(error));
+          if (eventType === 'INIT_SUCCESS') {
+            console.log('🚀 DB Service: Worker initialized');
+            clearTimeout(timeout);
+            this._isReady = true;
+            resolve();
+            return;
           }
-          this.queryCallbacks.delete(id);
-        }
-      };
 
-      this.worker.postMessage({ type: 'INIT' });
+          if (eventType === 'INIT_ERROR') {
+            clearTimeout(timeout);
+            reject(new Error(error));
+            return;
+          }
+
+          const callback = this.queryCallbacks.get(id);
+          if (callback) {
+            if (eventType === 'QUERY_SUCCESS') {
+              callback.resolve(results);
+            } else {
+              callback.reject(new Error(error));
+            }
+            this.queryCallbacks.delete(id);
+          }
+        };
+
+        this.worker.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error('Worker script error or not found'));
+        };
+
+        this.worker.postMessage({ type: 'INIT' });
+      } catch (err) {
+        clearTimeout(timeout);
+        reject(err);
+      }
     });
 
     return this.initPromise;
   }
 
   public async query(sql: string, params: any[] = []): Promise<any[]> {
-    await this.initPromise;
+    try {
+      await this.initPromise;
+    } catch (err) {
+      console.warn('DB Query failed because init failed:', err);
+      return []; // Return empty results on init failure
+    }
 
     return new Promise((resolve, reject) => {
       const id = ++this.queryId;

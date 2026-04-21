@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import { calculateRequiredXP, EXPANSION_LEVELS } from '../config'
 
 /**
@@ -41,14 +42,14 @@ export const useStatsStore = defineStore('stats', {
     showSettings: false,
     
     /** Cấu hình hiển thị và trải nghiệm người dùng */
-    settings: {
+    settings: markRaw({
       /** Cho phép hiển thị vùng thông báo mở rộng diện tích */
       showExpansionPreview: true,
       /** Phong cách hiển thị vùng mở rộng (BLUEPRINT: Bản vẽ xanh, GLOW: Hiệu ứng tỏa sáng) */
       expansionPreviewStyle: 'GLOW' as 'BLUEPRINT' | 'GLOW',
       /** Hiển thị khung va chạm vật lý (Debug) cho các thực thể */
       showDebugPhysics: false
-    },
+    }),
   }),
   getters: {
     /** 

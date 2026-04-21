@@ -38,6 +38,7 @@ const groupClasses = computed(() => {
 :deep(.btn-group-item) {
   border: 0;
   border-right: 1px solid rgba(55, 65, 81, 0.5);
+  border-radius: 0;
 }
 
 :deep(.btn-group-item:last-child) {
@@ -46,38 +47,33 @@ const groupClasses = computed(() => {
 
 :deep(.btn-group-item:first-child) {
   border-radius: 0.75rem 0 0 0.75rem;
-  border-radius: 0 0.75rem 0.75rem 0;
 }
 
 :deep(.btn-group-item:last-child) {
   border-radius: 0 0.75rem 0.75rem 0;
-  border-radius: 0.75rem 0 0 0.75rem;
   border-right: 0;
 }
 
 :deep(.btn-group-item:only-child) {
   border-radius: 0.75rem;
-  border-right: 0;
 }
 
-/* Vertical group */
-:deep(.btn-group-vertical .btn-group-item) {
+/* Vertical group support */
+.flex-col :deep(.btn-group-item) {
   border-right: 0;
   border-bottom: 1px solid rgba(55, 65, 81, 0.5);
 }
 
-:deep(.btn-group-vertical .btn-group-item:last-child) {
+.flex-col :deep(.btn-group-item:first-child) {
+  border-radius: 0.75rem 0.75rem 0 0;
+}
+
+.flex-col :deep(.btn-group-item:last-child) {
+  border-radius: 0 0 0.75rem 0.75rem;
   border-bottom: 0;
 }
 
-:deep(.btn-group-vertical .btn-group-item:first-child) {
-  border-radius: 0.75rem 0.75rem 0 0;
-  border-radius: 0 0 0.75rem 0.75rem;
-}
-
-:deep(.btn-group-vertical .btn-group-item:last-child) {
-  border-radius: 0 0 0.75rem 0.75rem;
-  border-radius: 0.75rem 0.75rem 0 0;
-  border-bottom: 0;
+.flex-col :deep(.btn-group-item:only-child) {
+  border-radius: 0.75rem;
 }
 </style>

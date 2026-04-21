@@ -21,8 +21,7 @@ const imageUrl = computed(() => {
 })
 const total = computed(() => (item.value?.buyPrice ?? 0) * qty.value)
 
-const formatVND = (usd: number) =>
-  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(usd * 25000)
+import { formatVND } from '../../shared/utils/currency'
 
 function confirm() {
   if (!item.value) return

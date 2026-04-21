@@ -13,9 +13,7 @@ import { getPackVisuals, getBoxVisuals, hasCustomVisual } from '../config/assetR
 import { useCartStore } from '../store/cartStore'
 import AddToCartModal from './AddToCartModal.vue'
 
-const formatVND = (priceUsd: number) => {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(priceUsd * 25000)
-}
+import { formatVND } from '../../shared/utils/currency'
 
 const gameStore = useGameStore()
 const statsStore = useStatsStore()
@@ -205,6 +203,7 @@ const handleImageError = (id: string) => {
                 <div 
                   v-for="item in group" 
                   :key="item.id"
+                  v-memo="[item.id, statsStore.level < item.requiredLevel]"
                   class="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200 relative group flex flex-col transition-all duration-300 hover:shadow-xl"
                 >
                   <!-- Lock Overlay -->

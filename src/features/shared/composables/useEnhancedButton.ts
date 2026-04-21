@@ -11,7 +11,20 @@
  */
 
 import { computed, type Ref } from 'vue'
-import type { ButtonVariant, ButtonSize } from './useButton'
+
+export type ButtonVariant =
+  | 'primary'
+  | 'secondary'
+  | 'success'
+  | 'danger'
+  | 'warning'
+  | 'info'
+  | 'outline'
+  | 'ghost'
+  | 'link'
+  | 'icon'
+
+export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
 export type IconPosition = 'left' | 'right'
 

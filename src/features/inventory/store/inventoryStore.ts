@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import { STOCK_ITEMS } from '../config'
 import type { StockItemInfo } from '../config'
 import { XP_REWARDS } from '../../stats/config'
@@ -22,7 +23,7 @@ export const useInventoryStore = defineStore('inventory', {
     /** Bộ sưu tập thẻ bài cá nhân: cardId -> số lượng */
     personalBinder: {} as Record<string, number>, 
     /** Cấu hình các loại mặt hàng có thể nhập về */
-    shopItems: STOCK_ITEMS,
+    shopItems: markRaw(STOCK_ITEMS),
     
     // Trạng thái Gacha UI
     isOpeningPack: false,
@@ -63,10 +64,10 @@ export const useInventoryStore = defineStore('inventory', {
      * Thêm bộ dữ liệu Shop mới vào danh sách shopItems hiện có.
      */
     mergeShopItems(shopItems: Record<string, StockItemInfo>) {
-      this.shopItems = {
+      this.shopItems = markRaw({
         ...STOCK_ITEMS,
         ...shopItems
-      }
+      })
     },
 
     /**
@@ -77,14 +78,18 @@ export const useInventoryStore = defineStore('inventory', {
       const box = this.shopItems[boxId]
       if (!box || box.type !== 'box' || !box.contains) return
 
-      if (this.shopInventory[boxId] > 0) {
+      const currentQty = this.shopInventory[boxId] || 0
+      if (currentQty > 0) {
          this.shopInventory[boxId]--
-         if (this.shopInventory[boxId] === 0) delete this.shopInventory[boxId]
+         if (this.shopInventory[boxId] <= 0) delete this.shopInventory[boxId]
 
          const innerId = box.contains.itemId
          const innerAmount = box.contains.amount
 
-         if (!this.shopInventory[innerId]) this.shopInventory[innerId] = 0
+         // Initialize inner inventory if not exists
+         if (this.shopInventory[innerId] === undefined || this.shopInventory[innerId] === null) {
+           this.shopInventory[innerId] = 0
+         }
          this.shopInventory[innerId] += innerAmount
       }
     },
@@ -173,8 +178,9 @@ export const useInventoryStore = defineStore('inventory', {
       }
 
       // Cập nhật state đã có data đầy đủ
-      this.lastPackPulled = sortedCards
-      this.currentPack = sortedCards
+      const finalCards = markRaw(sortedCards)
+      this.lastPackPulled = finalCards
+      this.currentPack = finalCards
     },
 
     /**

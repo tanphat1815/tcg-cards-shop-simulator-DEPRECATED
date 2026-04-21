@@ -170,8 +170,14 @@ export class FurnitureManager {
     return status
   }
 
-  updateFurnitureVisuals() {
+  private lastUpdateVisualsTime: number = 0
+
+  updateFurnitureVisuals(time: number) {
     const gameStore = useGameStore()
+
+    // Throttle update to every 200ms to save CPU
+    if (time < this.lastUpdateVisualsTime + 200) return
+    this.lastUpdateVisualsTime = time
 
     // 1. Cập nhật Text trên các kệ
     Object.values(gameStore.placedShelves).forEach((shelf: any) => {

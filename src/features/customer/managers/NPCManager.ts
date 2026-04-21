@@ -221,12 +221,18 @@ export class NPCManager {
     }
   }
 
+  private lastStatusUpdateTime: number = 0
+
   /**
    * Hiển thị Text trạng thái hiện tại (đang tìm gì, đang làm gì) trên đầu NPC
    */
   private updateStatusText(customer: Customer, time: number) {
     if (!customer.statusText) return
     customer.statusText.setPosition(customer.sprite.x, customer.sprite.y - 55)
+
+    // Throttle text updates to every 200ms
+    if (time < this.lastStatusUpdateTime + 200) return
+    this.lastStatusUpdateTime = time
 
     let label = '...'
     switch (customer.state) {
@@ -598,4 +604,11 @@ export class NPCManager {
   }
 
   getCustomers(): Customer[] { return this.customers }
+
+  /**
+   * Giải phóng tài nguyên khi Manager bị hủy.
+   */
+  destroy() {
+    this.cleanupAllNPCs()
+  }
 }

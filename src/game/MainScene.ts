@@ -271,6 +271,14 @@ export default class MainScene extends Phaser.Scene {
       console.log("[MainScene] Shutting down, cleaning up store subscriptions...")
       this.storeUnsubscribers.forEach(unsub => unsub())
       this.storeUnsubscribers = []
+
+      // 🧹 Gọi destroy cho toàn bộ Managers để dọn dẹp Phaser Objects
+      this.npcManager.destroy()
+      this.staffManager.destroy()
+      this.furnitureManager.destroy()
+      this.environmentManager.destroy()
+      this.deliveryManager.destroy()
+      this.townManager.destroy()
     })
   }
 
@@ -499,13 +507,17 @@ export default class MainScene extends Phaser.Scene {
 
     // 1. Cập nhật logic các Managers (Tạm dừng khi đang Edit/Build)
     if (!store.isBuildMode && !store.isEditMode) {
-      this.npcManager.update()
-      this.furnitureManager.updateFurnitureVisuals()
-      this.staffManager.update(time)
-      this.deliveryManager.update(time, this.player.x, this.player.y)
-
-      // 3. Xử lý nhân viên hỗ trợ thanh toán (Auto Checkout)
-      this.handleAutoCheckout(time)
+      try {
+        this.npcManager.update()
+        this.furnitureManager.updateFurnitureVisuals(time)
+        this.staffManager.update(time)
+        this.deliveryManager.update(time, this.player.x, this.player.y)
+        
+        // 3. Xử lý nhân viên hỗ trợ thanh toán (Auto Checkout)
+        this.handleAutoCheckout(time)
+      } catch (err) {
+        console.error('[MainScene] Manager update loop error:', err)
+      }
     }
 
     // 2. Xử lý tương tác nhấn phím E (Thanh toán/Quản lý kệ)
