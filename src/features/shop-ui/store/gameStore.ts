@@ -143,6 +143,15 @@ export const useGameStore = defineStore('game', {
     },
     /** NPC lấy một món đồ ngẫu nhiên từ kệ */
     npcTakeItemFromSlot(shelfId: string) { return useFurnitureStore().npcTakeItemFromSlot(shelfId) },
+    /** NPC xem card trên display_case */
+    npcPeekFromDisplayCase(shelfId: string) { return useFurnitureStore().npcPeekFromDisplayCase(shelfId) },
+    /** NPC chốt mua card trên display_case */
+    npcCommitBuyFromDisplayCase(shelfId: string, tierIdx: number, slotIdx: number, cardId: string) {
+      useFurnitureStore().npcCommitBuyFromDisplayCase(shelfId, tierIdx, slotIdx, cardId)
+    },
+    placeCardOnDisplayCase(shelfId: string, tierIndex: number, slotIndex: number, cardId: string, customPrice: number) {
+      return useFurnitureStore().placeCardOnDisplayCase(shelfId, tierIndex, slotIndex, cardId, customPrice)
+    },
     
     // --- Construction & Build Mode ---
     buyFurniture(furnitureId: string) { return useFurnitureStore().buyFurniture(furnitureId) },

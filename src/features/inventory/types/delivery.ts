@@ -31,4 +31,6 @@ export interface SetPriceTarget {
   currentPrice: number    // giá đang set
   marketPrice: number     // market price từ shopItems.sellPrice
   buyPrice: number        // giá nhập (để tính profit)
+  slotIndex?: number      // optional (chỉ cho display_case)
+  isSingleCard?: boolean  // flag logic khác cho display_case
 }

@@ -2,9 +2,11 @@
 import { ref, computed, watch } from 'vue'
 import { useDeliveryStore } from '../store/deliveryStore'
 import { useInventoryStore } from '../store/inventoryStore'
+import { useFurnitureStore } from '../../furniture/store/furnitureStore'
 
 const deliveryStore = useDeliveryStore()
 const inventoryStore = useInventoryStore()
+const furnitureStore = useFurnitureStore()
 
 const target = computed(() => deliveryStore.setPriceTarget)
 const customPrice = ref(0)
@@ -28,11 +30,24 @@ import { formatVND } from '../../shared/utils/currency'
 
 function applyPrice() {
   if (!target.value) return
-  // Ghi giá vào shopItems.sellPrice cho item này
-  const item = inventoryStore.shopItems[target.value.itemId]
-  if (item) {
-    item.sellPrice = customPrice.value
+  
+  // LOGIC TRƯỜNG HỢP 1: Single Card trên Display Case
+  if (target.value.isSingleCard && target.value.slotIndex !== undefined) {
+    const shelf = furnitureStore.placedShelves[target.value.shelfId]
+    if (shelf) {
+      const tier = shelf.tiers[target.value.tierIndex]
+      if (!tier.customPriceMap) tier.customPriceMap = {}
+      tier.customPriceMap[target.value.itemId] = customPrice.value
+    }
+  } 
+  // LOGIC TRƯỜNG HỢP 2: Sản phẩm Shop thông thường (Pack/Box)
+  else {
+    const item = inventoryStore.shopItems[target.value.itemId]
+    if (item) {
+      item.sellPrice = customPrice.value
+    }
   }
+  
   deliveryStore.closeSetPrice()
 }
 

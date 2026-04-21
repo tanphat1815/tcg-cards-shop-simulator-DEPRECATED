@@ -1,9 +1,15 @@
-export type ShelfRole = 'selling' | 'storage'
+export type ShelfRole = 'selling' | 'storage' | 'display_case'
 
 export interface ShelfTier {
   itemId: string | null;  // Which item fills this tier (null = empty, all slots same type)
   slots: (string | null)[];  // Each slot: itemId or null
   maxSlots: number;          // 32 for packs, 4 for boxes
+  /**
+   * ── Chỉ dùng cho display_case ──
+   * Giá Player tự set cho mỗi cardId trưng bày trên tầng này.
+   * Nếu null → dùng marketPrice mặc định.
+   */
+  customPriceMap?: Record<string, number>;
 }
 
 export interface ShelfData {

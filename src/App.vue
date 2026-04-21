@@ -17,6 +17,7 @@ import GymOverlay from './features/gym/components/GymOverlay.vue'
 import CartSidebar from './features/inventory/components/CartSidebar.vue'
 import SetPriceModal from './features/inventory/components/SetPriceModal.vue'
 import HoldingHandHUD from './features/inventory/components/HoldingHandHUD.vue'
+import TradeInModal from './features/inventory/components/TradeInModal.vue'
 import { useGameStore } from './features/shop-ui/store/gameStore'
 import { useStatsStore } from './features/stats/store/statsStore'
 import { useInventoryStore } from './features/inventory/store/inventoryStore'
@@ -24,6 +25,7 @@ import { useFurnitureStore } from './features/furniture/store/furnitureStore'
 import { useCustomerStore } from './features/customer/store/customerStore'
 import { useDeliveryStore } from './features/inventory/store/deliveryStore'
 import { usePlayerHandStore } from './features/inventory/store/playerHandStore'
+import { useTradeInStore } from './features/inventory/store/tradeInStore'
 
 const store = useGameStore()
 const statsStore = useStatsStore()
@@ -32,6 +34,7 @@ const furnitureStore = useFurnitureStore()
 const customerStore = useCustomerStore()
 const deliveryStore = useDeliveryStore()
 const playerHandStore = usePlayerHandStore()
+const tradeInStore = useTradeInStore()
 
 onMounted(() => {
   store.loadSave()
@@ -49,6 +52,7 @@ onMounted(() => {
   customerStore.$subscribe(saveCallback, { deep: true })
   deliveryStore.$subscribe(saveCallback, { deep: true })
   playerHandStore.$subscribe(saveCallback, { deep: true })
+  tradeInStore.$subscribe(saveCallback, { deep: true })
 })
 </script>
 
@@ -71,5 +75,6 @@ onMounted(() => {
     <CartSidebar />
     <SetPriceModal />
     <HoldingHandHUD />
+    <TradeInModal />
   </div>
 </template>

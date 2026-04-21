@@ -2,9 +2,12 @@ import Phaser from 'phaser'
 import { AppConfig } from '../../../game/config/AppConfig'
 import { EnvironmentManager } from '../../environment/managers/EnvironmentManager'
 import { useGameStore } from '../../shop-ui/store/gameStore'
-import type { NPCState, Customer } from '../types'
-import { DEPTH } from '../../environment/config'
 import { applyDynamicYSort, applyFootCollider } from '../../environment/ySortUtils'
+import { DEPTH } from '../../environment/config'
+import { useStatsStore } from '../../stats/store/statsStore'
+import { useApiStore } from '../../inventory/store/apiStore'
+import { getRawPrice } from '../../shared/utils/currency'
+import type { NPCState, Customer, CustomerIntent } from '../types'
 
 /**
  * NPCManager - Hệ thống điều phối AI cho toàn bộ khách hàng trong Game.
@@ -34,6 +37,15 @@ export class NPCManager {
   ) {
     this.scene = scene
     this.environmentManager = environmentManager
+
+    // Listen for Trade-In NPC leave requests
+    window.addEventListener('trade-in:npc-leave', ((ev: CustomEvent) => {
+      const { instanceId } = ev.detail
+      const npc = this.customers.find(c => c.instanceId === instanceId)
+      if (npc) {
+        this.npcLeaveShop(npc)
+      }
+    }) as EventListener)
   }
 
   /**
@@ -108,8 +120,36 @@ export class NPCManager {
     npcSprite.setCollideWorldBounds(true)
     applyDynamicYSort(npcSprite)             // R2 — initial Y-sort depth (updated every frame)
 
-    // Quyết định mục đích: 30% khách đến để đánh bài, 70% đến để mua hàng
-    const isPlayer = Math.random() < 0.3
+    // Quyết định mục đích: 
+    // 60% BUY, 25% PLAY, 15% SELL (SELL chỉ khi Level >= 5)
+    const rand = Math.random()
+    let intent: CustomerIntent
+    if (rand < 0.25) {
+      intent = 'PLAY'
+    } else if (rand < 0.40) {
+      intent = 'SELL'
+    } else {
+      intent = 'BUY'
+    }
+
+    // Chỉ spawn 'SELL' nếu Player đã mở khóa tính năng (ví dụ: level >= 5)
+    if (intent === 'SELL' && useStatsStore().level < 5) {
+      intent = 'BUY'
+    }
+
+    // Khi intent = 'SELL' → random chọn 1 card từ apiStore để NPC mang đến
+    let tradeCardId: string | undefined
+    if (intent === 'SELL') {
+      const apiStore = useApiStore()
+      const allCards = Object.values(apiStore.flatCardMap)
+      if (allCards.length > 0) {
+        const pick = allCards[Phaser.Math.Between(0, allCards.length - 1)] as any
+        tradeCardId = pick.id
+      } else {
+        // Fallback: nếu chưa load card nào → chuyển sang BUY
+        intent = 'BUY'
+      }
+    }
 
     const instanceId = `npc_${Date.now()}_${Math.floor(Math.random() * 1000)}`
     const newCust: Customer = {
@@ -119,13 +159,14 @@ export class NPCManager {
       targetX: doorLocation.x,
       targetY: doorLocation.y - 40,
       targetPrice: 0,
-      intent: isPlayer ? 'PLAY' : 'BUY',
+      intent,
       spawnTime: this.scene.time.now,
       lastDecisionTime: this.scene.time.now,
       lastMoveAttemptTime: this.scene.time.now,
       instanceId,
       checkedShelfIds: [],
-      searchStartTime: this.scene.time.now
+      searchStartTime: this.scene.time.now,
+      tradeCardId
     }
 
     // Tạo Text hiển thị trạng thái trên đầu NPC (Overhead Label)
@@ -219,6 +260,8 @@ export class NPCManager {
     } else {
       if (sprite.anims.isPlaying) sprite.anims.stop()
     }
+
+    this.updateTradeIcon(customer)
   }
 
   private lastStatusUpdateTime: number = 0
@@ -243,6 +286,8 @@ export class NPCManager {
       case 'GO_CASHIER': label = '🛒 To Cashier'; break;
       case 'WAITING': label = '⌛ Waiting in line'; break;
       case 'SEEK_TABLE': label = '🃏 Going to table'; break;
+      case 'TRADE_IN': label = '🃏 To Counter'; break;
+      case 'TRADE_IN_WAITING': label = '🃏 Offering Card'; break;
       case 'PLAYING': {
         const store = useGameStore()
         const table = customer.assignedTableId ? store.placedTables[customer.assignedTableId] : null
@@ -285,13 +330,23 @@ export class NPCManager {
       case 'GO_CASHIER': this.handleGoCashier(customer); break;
       case 'WAITING': this.handleWaiting(customer); break;
       case 'LEAVE': this.handleLeave(customer); break;
+      case 'TRADE_IN': this.handleTradeIn(customer); break;
+      case 'TRADE_IN_WAITING': this.handleTradeInWaiting(customer, time); break;
     }
   }
 
   /** NPC mới xuất hiện đi bộ vào giữa cửa hàng */
   private handleSpawn(customer: Customer, time: number) {
     if (time > customer.timer) {
-      customer.state = customer.intent === 'PLAY' ? 'WANT_TO_PLAY' : 'WANDER'
+      if (customer.intent === 'PLAY') {
+        customer.state = 'WANT_TO_PLAY'
+      } else if (customer.intent === 'SELL') {
+        customer.state = 'TRADE_IN'
+        this.spawnTradeIcon(customer)
+      } else {
+        customer.state = 'WANDER'
+      }
+
       const shopBounds = this.environmentManager.getShopBounds()
       customer.targetX = Phaser.Math.Between(shopBounds.x + 50, shopBounds.x + shopBounds.w - 50)
       customer.targetY = Phaser.Math.Between(shopBounds.y + 50, shopBounds.y + shopBounds.h - 50)
@@ -436,9 +491,9 @@ export class NPCManager {
         const shelves = Object.values(store.placedShelves)
         let foundShelfId = null
         for (const shelf of shelves) {
-          // FIX: Chỉ mua từ kệ 'selling', KHÔNG bao giờ từ 'storage'
-          if (shelf.role !== 'selling') continue
-          if (!customer.checkedShelfIds.includes(shelf.id) && shelf.tiers.some(t => t.slots.length > 0)) {
+          // NPCs mua từ kệ 'selling' hoặc 'display_case'
+          if (shelf.role !== 'selling' && shelf.role !== 'display_case') continue
+          if (!customer.checkedShelfIds.includes(shelf.id) && shelf.tiers.some(t => t.slots.some(s => s !== null))) {
             foundShelfId = shelf.id
             break
           }
@@ -494,9 +549,55 @@ export class NPCManager {
       // Trừ hàng trong Store và thu thập thông tin giá cả
       if (shelfIdTaken) {
         const shelf = store.placedShelves[shelfIdTaken]
-        if (!shelf || shelf.role !== 'selling') {
+        if (!shelf || (shelf.role !== 'selling' && shelf.role !== 'display_case')) {
           customer.state = 'WANDER'
           return
+        }
+
+        // Logic riêng cho Display Case (Thẻ lẻ)
+        if (shelf.role === 'display_case') {
+          const apiStore = useApiStore()
+          
+          // NPC tìm card muốn mua trong tủ (chỉ peek thử giá)
+          const result = store.npcPeekFromDisplayCase(shelf.id)
+          if (result) {
+            const { cardId, price, tierIdx, slotIdx } = result
+            const card = apiStore.flatCardMap[cardId]
+            const market = getRawPrice(card)
+            const acceptableMax = market * 1.5
+
+            if (price <= acceptableMax) {
+              // Chấp nhận mua -> commit hành động thực tế
+              store.npcCommitBuyFromDisplayCase(shelf.id, tierIdx, slotIdx, cardId)
+              
+              customer.targetPrice = price
+              
+              // Popup
+              const popup = this.scene.add.text(customer.sprite.x, customer.sprite.y - 40, `+1 Card 🃏 ($${price})`, { fontSize: '12px', color: '#f1c40f', fontStyle: 'bold' }).setOrigin(0.5)
+              this.scene.tweens.add({ targets: popup, y: popup.y - 30, alpha: 0, duration: 1500, onComplete: () => popup.destroy() })
+
+              // Đi thanh toán
+              customer.state = 'GO_CASHIER'
+              store.addWaitingCustomer(customer.targetPrice, customer.instanceId)
+              
+              const cashier = Object.values(store.placedCashiers)[0] as any
+              if (cashier) {
+                const myIndex = store.waitingQueue.findIndex((item: any) => item.instanceId === customer.instanceId)
+                customer.targetX = cashier.x
+                customer.targetY = cashier.y + 60 + (myIndex * 40)
+                this.scene.physics.moveTo(customer.sprite, customer.targetX, customer.targetY, this.npcSpeed)
+              }
+              return
+            } else {
+              // Quá đắt -> Bỏ qua, wander tiếp
+              customer.checkedShelfIds.push(shelf.id)
+              customer.state = 'WANDER'
+              return
+            }
+          } else {
+            customer.state = 'WANDER'
+            return
+          }
         }
       }
 
@@ -582,6 +683,23 @@ export class NPCManager {
   /** Lệnh cưỡng chế NPC rời đi (Dùng khi hoàn tất thanh toán hoặc đóng cửa) */
   private npcLeaveShop(customer: Customer) {
     if (!customer.sprite.active) return
+
+    // Destroy trade icon nếu có
+    if (customer.tradeIcon) {
+      customer.tradeIcon.destroy()
+      customer.tradeIcon = undefined
+    }
+
+    // Nếu NPC đang ở state trade → thông báo tradeStore để đóng modal
+    if (customer.state === 'TRADE_IN_WAITING' || customer.state === 'TRADE_IN') {
+      import('../../inventory/store/tradeInStore').then(({ useTradeInStore }) => {
+        const tradeStore = useTradeInStore()
+        if (tradeStore.activeTrade?.npcInstanceId === customer.instanceId) {
+          tradeStore.cancelTrade('npc_left')
+        }
+      })
+    }
+
     customer.state = 'LEAVE'
     customer.timer = this.scene.time.now
     const doorLocation = this.environmentManager.getDoorLocation()
@@ -600,6 +718,114 @@ export class NPCManager {
           this.scene.physics.moveTo(customer.sprite, customer.targetX, customer.targetY, this.npcSpeed)
         }
       }
+    })
+  }
+
+  /**
+   * Tạo icon lơ lửng 🃏 trên đầu NPC để Player biết đây là khách bán thẻ.
+   * Icon bay nhẹ (tween yoyo) để dễ nhận diện.
+   */
+  private spawnTradeIcon(customer: Customer) {
+    const icon = this.scene.add.text(
+      customer.sprite.x,
+      customer.sprite.y - 70,
+      '🃏',
+      { fontSize: '20px' }
+    ).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
+
+    // Tween bouncing animation
+    this.scene.tweens.add({
+      targets: icon,
+      y: icon.y - 6,
+      duration: 600,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    })
+
+    customer.tradeIcon = icon
+  }
+
+  /**
+   * Cập nhật vị trí icon mỗi frame (gọi trong updateNPCAnimation).
+   */
+  private updateTradeIcon(customer: Customer) {
+    if (!customer.tradeIcon) return
+    customer.tradeIcon.x = customer.sprite.x
+    customer.tradeIcon.y = customer.sprite.y - 70
+  }
+
+  /**
+   * NPC mang thẻ bán: di chuyển tới quầy thu ngân mặc định.
+   */
+  private handleTradeIn(customer: Customer) {
+    const gameStore = useGameStore()
+    const cashiers = Object.values(gameStore.placedCashiers)
+    if (cashiers.length === 0) {
+      // Không có quầy → NPC bỏ đi
+      this.npcLeaveShop(customer)
+      return
+    }
+
+    // Pick quầy đầu tiên
+    const desk = cashiers[0] as any
+    customer.targetX = desk.x
+    customer.targetY = desk.y + 40   // Đứng trước quầy 40px
+
+    const dist = Phaser.Math.Distance.Between(
+      customer.sprite.x, customer.sprite.y,
+      customer.targetX, customer.targetY
+    )
+
+    if (dist > 12) {
+      this.scene.physics.moveTo(
+        customer.sprite,
+        customer.targetX, customer.targetY,
+        this.npcSpeed
+      )
+    } else {
+      // Đã tới quầy → chuyển state
+      customer.sprite.body?.velocity.set(0)
+      customer.sprite.setPosition(customer.targetX, customer.targetY)
+      customer.state = 'TRADE_IN_WAITING'
+      customer.timer = this.scene.time.now + 30000  // Chờ tối đa 30s rồi bỏ đi
+    }
+  }
+
+  /**
+   * NPC đứng tại quầy, đợi Player click để mở TradeInModal.
+   * Timeout 30s → NPC bỏ đi.
+   */
+  private handleTradeInWaiting(customer: Customer, time: number) {
+    if (customer.sprite.body) {
+      customer.sprite.body.velocity.set(0)
+    }
+
+    // Timeout: Nếu Player không tương tác trong 30s → NPC chán, bỏ đi
+    if (time > customer.timer) {
+      this.npcLeaveShop(customer)
+      return
+    }
+
+    // Setup click handler (chỉ set 1 lần)
+    if (!customer.sprite.input) {
+      customer.sprite.setInteractive({ useHandCursor: true })
+      customer.sprite.on('pointerdown', () => {
+        this.openTradeInModal(customer)
+      })
+    }
+  }
+
+  /**
+   * Player click vào NPC → mở TradeInModal và khởi tạo deal.
+   */
+  private openTradeInModal(customer: Customer) {
+    if (!customer.tradeCardId) return
+
+    // Dynamic import để tránh circular dep
+    import('../../inventory/store/tradeInStore').then(({ useTradeInStore }) => {
+      const tradeStore = useTradeInStore()
+      tradeStore.startTrade(customer.instanceId, customer.tradeCardId!)
     })
   }
 

@@ -15,6 +15,7 @@ export const TEX = {
   CASHIER_DESK: 'cashier_desk',
   PLAY_TABLE: 'play_table',
   PLAY_CHAIR: 'play_chair',
+  DISPLAY_CASE: 'display_case',
 
   // ----- Delivery -----
   BOX_ITEM: 'box_item',

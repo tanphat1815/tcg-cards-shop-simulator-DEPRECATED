@@ -1,4 +1,18 @@
-export type NPCState = 'SPAWN' | 'WANDER' | 'SEEK_ITEM' | 'INTERACT' | 'GO_CASHIER' | 'WAITING' | 'LEAVE' | 'WANT_TO_PLAY' | 'SEEK_TABLE' | 'PLAYING'
+export type NPCState =
+  | 'SPAWN'
+  | 'WANDER'
+  | 'SEEK_ITEM'
+  | 'INTERACT'
+  | 'GO_CASHIER'
+  | 'WAITING'
+  | 'LEAVE'
+  | 'WANT_TO_PLAY'
+  | 'SEEK_TABLE'
+  | 'PLAYING'
+  | 'TRADE_IN'          // NPC đang di chuyển tới quầy thu ngân để bán thẻ
+  | 'TRADE_IN_WAITING'  // NPC đứng tại quầy, đợi Player click tương tác
+
+export type CustomerIntent = 'BUY' | 'PLAY' | 'SELL'
 
 export interface Customer {
   sprite: Phaser.Physics.Arcade.Sprite;
@@ -7,7 +21,7 @@ export interface Customer {
   targetX: number;
   targetY: number;
   targetPrice: number;
-  intent?: 'BUY' | 'PLAY';
+  intent?: CustomerIntent;
   assignedTableId?: string | null;
   seatIndex?: number | null;
   spawnTime: number;         // Time when NPC entered shop
@@ -17,4 +31,11 @@ export interface Customer {
   instanceId: string; // Persistent ID for this NPC
   checkedShelfIds: string[]; // Remember shelves visited but empty
   searchStartTime?: number; // Time when NPC started searching for a table/shelf
+
+  // ── NEW: Trade-In fields ─────────────────────────────────
+  /** Card ID mà NPC mang đến bán (lấy từ apiStore.flatCardMap) */
+  tradeCardId?: string;
+  /** Icon 🃏 lơ lửng trên đầu NPC (destroy khi rời shop) */
+  tradeIcon?: Phaser.GameObjects.Text;
 }
+

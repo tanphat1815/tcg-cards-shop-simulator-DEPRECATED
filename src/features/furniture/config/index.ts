@@ -1,4 +1,4 @@
-export type FurnitureRole = 'selling' | 'storage' | 'table' | 'cashier'
+export type FurnitureRole = 'selling' | 'storage' | 'table' | 'cashier' | 'display_case'
 
 export interface FurnitureItemInfo {
   id: string;
@@ -77,5 +77,19 @@ export const FURNITURE_ITEMS: Record<string, FurnitureItemInfo> = {
     numTiers: 10,
     slotsPerTier: 40,
     role: 'storage'
-  }
+  },
+  'display_case': {
+    id: 'display_case',
+    name: 'Glass Display Case',
+    buyPrice: 1200,
+    requiredLevel: 8,
+    capacityStr: '6 Singles (2x3)',
+    description:
+      'Tủ kính trưng bày thẻ bài lẻ. Chưng thẻ quý bạn thu mua được; ' +
+      'NPC vãng lai sẽ trả giá cao nếu bạn đặt đúng giá. ' +
+      'Không dùng để chứa Pack/Box.',
+    numTiers: 2,          // 2 tầng
+    slotsPerTier: 3,      // 3 thẻ mỗi tầng
+    role: 'display_case',
+  },
 };

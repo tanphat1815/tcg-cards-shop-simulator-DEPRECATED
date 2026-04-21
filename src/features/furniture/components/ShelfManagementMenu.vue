@@ -2,6 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
+import { useApiStore } from '../../inventory/store/apiStore'
+import TcgCard from '../../shared/components/TcgCard.vue'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
 import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import { usePlayerHandStore, type HandItemType } from '../../inventory/store/playerHandStore'
@@ -11,6 +13,7 @@ const gameStore = useGameStore()
 const inventoryStore = useInventoryStore()
 const deliveryStore = useDeliveryStore()
 const handStore = usePlayerHandStore()
+const apiStore = useApiStore()
 
 /** ID của item đang được chọn để xếp lên kệ */
 const selectedItemId = ref<string | null>(null)
@@ -31,11 +34,24 @@ onMounted(() => {
  * Danh sách item trong kho inventory.
  */
 const inventoryItems = computed(() => {
+  const shelf = activeShelf.value
+  if (shelf?.role === 'display_case') {
+    return Object.keys(inventoryStore.personalBinder)
+      .map(cardId => ({
+        id: cardId,
+        item: apiStore.flatCardMap[cardId],
+        quantity: inventoryStore.personalBinder[cardId],
+        isCard: true
+      }))
+      .filter(x => x.item !== undefined && x.quantity > 0)
+  }
+
   return Object.keys(inventoryStore.shopInventory)
     .map(itemId => ({
       id: itemId,
       item: inventoryStore.shopItems[itemId],
-      quantity: inventoryStore.shopInventory[itemId]
+      quantity: inventoryStore.shopInventory[itemId],
+      isCard: false
     }))
     .filter(x => x.item !== undefined && x.quantity > 0)
 })
@@ -62,9 +78,16 @@ const selectItemFromHand = () => {
  * Xử lý click vào tầng để xếp hàng.
  */
 const handleTierClick = (tierIndex: number, event: MouseEvent) => {
-  if (!selectedItemId.value) return
   const shelf = activeShelf.value
   if (!shelf) return
+
+  // Logic riêng cho Display Case
+  if (shelf.role === 'display_case') {
+    // Chỉ xử lý click vào slot cụ thể nếu có selection
+    return // Display case cần xử lý click vào SLOT, không phải Tier chung (ở template sẽ truyền slotIndex)
+  }
+
+  if (!selectedItemId.value) return
 
   const shopItem = inventoryStore.shopItems[selectedItemId.value]
 
@@ -107,9 +130,74 @@ const handleTierClick = (tierIndex: number, event: MouseEvent) => {
   }
 
   // Hết hàng trong kho thì bỏ chọn
-  if (!inventoryStore.shopInventory[selectedItemId.value]) {
+  if (isSelectedFromHand) {
+     if (handStore.isEmpty) {
+        selectedItemId.value = null
+        isSelectedFromHand.value = false
+     }
+  } else if (!inventoryStore.shopInventory[selectedItemId.value]) {
     selectedItemId.value = null
   }
+}
+
+/**
+ * Xử lý click vào SLOT cụ thể trên Display Case.
+ */
+const handleDisplaySlotClick = (tierIndex: number, slotIndex: number) => {
+   if (!selectedItemId.value || !activeShelf.value) return
+   const shelf = activeShelf.value
+   if (shelf.role !== 'display_case') return
+
+   // Mặc định giá là Market Price * 1.2
+   const card = apiStore.flatCardMap[selectedItemId.value]
+   const market = card?.pricing?.tcgplayer?.normal?.marketPrice || 10
+   const defaultPrice = Math.round(market * 1.2 * 100) / 100
+
+   const success = gameStore.placeCardOnDisplayCase(
+      shelf.id,
+      tierIndex,
+      slotIndex,
+      selectedItemId.value,
+      defaultPrice
+   )
+
+   if (success) {
+      // Mở ngay price editor để người chơi điều chỉnh nếu muốn
+      openCardPriceEditor(selectedItemId.value, tierIndex, slotIndex)
+      
+      // Hết hàng trong binder thì bỏ chọn
+      if (!inventoryStore.personalBinder[selectedItemId.value]) {
+         selectedItemId.value = null
+      }
+   }
+}
+
+/**
+ * Mở modal định giá cho một card cụ thể trên display case.
+ */
+const openCardPriceEditor = (cardId: string, tierIndex: number, slotIndex: number) => {
+  const shelf = activeShelf.value
+  if (!shelf) return
+
+  const card = apiStore.flatCardMap[cardId]
+  if (!card) return
+
+  const tier = shelf.tiers[tierIndex]
+  const currentPrice = tier.customPriceMap?.[cardId] ?? 0
+  const marketPrice = card.pricing?.tcgplayer?.normal?.marketPrice || 10
+
+  deliveryStore.openSetPrice({
+    shelfId: shelf.id,
+    tierIndex: tierIndex,
+    slotIndex: slotIndex, // Thêm field mới
+    itemId: cardId,
+    name: card.name,
+    imageUrl: card.images?.small || '',
+    currentPrice: currentPrice,
+    marketPrice: marketPrice,
+    buyPrice: marketPrice * 0.7, // Giả định Player thu mua ở mức 70% market
+    isSingleCard: true // Flag cho modal
+  })
 }
 
 /**
@@ -167,6 +255,24 @@ const handleTierRightClick = (tierIndex: number) => {
   })
 }
 
+const handleSlotRightClick = (tierIndex: number, slotIndex: number) => {
+  const shelf = activeShelf.value
+  if (!shelf || shelf.role !== 'display_case') return
+
+  const tier = shelf.tiers[tierIndex]
+  const cardId = tier.slots[slotIndex]
+  if (!cardId) return
+
+  // Trả về binder
+  if (!inventoryStore.personalBinder[cardId]) inventoryStore.personalBinder[cardId] = 0
+  inventoryStore.personalBinder[cardId]++
+
+  // Xóa khỏi slot
+  tier.slots[slotIndex] = null
+  if (tier.customPriceMap) delete tier.customPriceMap[cardId]
+  if (tier.slots.every(s => s === null)) tier.itemId = null
+}
+
 const clearTier = (tierIndex: number) => {
   const shelfId = gameStore.activeShelfId
   if (!shelfId) return
@@ -175,6 +281,7 @@ const clearTier = (tierIndex: number) => {
 
 const canPlaceInTier = (tierIndex: number) => {
   if (!selectedItemId.value || !activeShelf.value) return false
+  if (activeShelf.value.role === 'display_case') return true // Có thể đặt vào bất cứ tầng nào nếu còn slot
   const tier = activeShelf.value.tiers[tierIndex]
   if (tier.itemId === null) return true
   if (tier.itemId === selectedItemId.value) return tier.slots.length < tier.maxSlots
@@ -206,7 +313,7 @@ const tierFillPct = (tierIndex: number): number => {
               ? 'bg-amber-900/50 text-amber-400 border-amber-700/60'
               : 'bg-green-900/50 text-green-400 border-green-700/60'"
           >
-            {{ activeShelf.role === 'storage' ? '📦 KHO LƯU TRỮ' : '🏷️ KỆ BÁN HÀNG' }}
+            {{ activeShelf.role === 'storage' ? '📦 KHO LƯU TRỮ' : activeShelf.role === 'display_case' ? '🃏 TỦ KÍNH TRƯNG BÀY' : '🏷️ KỆ BÁN HÀNG' }}
           </span>
         </div>
         
@@ -254,7 +361,7 @@ const tierFillPct = (tierIndex: number): number => {
                 </span>
               </div>
               <span class="text-[10px] text-indigo-300 font-medium uppercase">
-                {{ handStore.item.type === 'pack' ? '🎁 Booster Pack' : '📦 Thùng hàng' }}
+                {{ handStore.item.type === 'pack' ? '🎁 Booster Pack' : handStore.item.type === 'box' ? '📦 Thùng hàng' : '🃏 Card' }}
               </span>
 
               <!-- Selection Indicator -->
@@ -270,8 +377,10 @@ const tierFillPct = (tierIndex: number): number => {
             </p>
           </div>
 
-          <!-- SECTION 2: SHOP INVENTORY -->
-          <h3 class="text-sm font-bold text-gray-200 mb-3 pb-2 border-b border-gray-700 uppercase tracking-wider">📦 Kho hàng Shop</h3>
+          <!-- SECTION 2: SHOP INVENTORY / PERSONAL BINDER -->
+          <h3 class="text-sm font-bold text-gray-200 mb-3 pb-2 border-b border-gray-700 uppercase tracking-wider">
+             {{ activeShelf.role === 'display_case' ? '🗂️ Personal Binder' : '📦 Kho hàng Shop' }}
+          </h3>
 
           <div v-if="inventoryItems.length === 0" class="text-center text-gray-500 italic mt-10 text-sm">
             Kho đang trống.
@@ -286,13 +395,18 @@ const tierFillPct = (tierIndex: number): number => {
                   ? 'bg-emerald-900/40 border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
                   : 'bg-gray-800/60 border-gray-700/40 hover:bg-gray-700'"
               >
-                <div class="flex flex-col min-w-0">
+                <div class="flex flex-col min-w-0" :class="{ 'flex-grow': inv.isCard }">
                   <span class="font-bold text-[12px] text-gray-200 truncate">
                     {{ inv.item?.name }}
                   </span>
-                  <span class="text-[9px] text-gray-500 mt-0.5 uppercase">
-                    {{ inv.item?.type }}
-                  </span>
+                  <div class="flex items-center gap-1.5 mt-0.5">
+                    <span class="text-[9px] text-gray-500 uppercase">
+                      {{ inv.isCard ? (inv.item as any).rarity || 'Common' : (inv.item as any).type }}
+                    </span>
+                    <span v-if="inv.isCard" class="text-[9px] text-yellow-500/80 font-bold">
+                       ${{ (inv.item as any).pricing?.tcgplayer?.normal?.marketPrice?.toFixed(1) || '0.0' }}
+                    </span>
+                  </div>
                 </div>
                 <div class="bg-gray-950 text-emerald-400 px-2 py-0.5 rounded text-xs font-mono border border-gray-800 ml-2 shrink-0">
                   x{{ inv.quantity }}
@@ -335,7 +449,7 @@ const tierFillPct = (tierIndex: number): number => {
               <div class="flex items-center gap-3">
                 <span class="text-xs font-black text-gray-500 uppercase tracking-widest">Tầng {{ tierIdx + 1 }}</span>
 
-                <div v-if="tier.itemId" class="flex items-center gap-3">
+                <div v-if="tier.itemId && activeShelf.role !== 'display_case'" class="flex items-center gap-3">
                   <div class="flex items-center gap-1.5 bg-gray-950 px-2 py-0.5 rounded border border-gray-700">
                     <span class="text-sm">{{ inventoryStore.shopItems[tier.itemId]?.type === 'box' ? '📦' : '🎁' }}</span>
                     <span class="text-xs font-bold text-yellow-500">{{ inventoryStore.shopItems[tier.itemId]?.name }}</span>
@@ -349,7 +463,7 @@ const tierFillPct = (tierIndex: number): number => {
 
                   <!-- Hiển thị giá và cho phép sửa nhanh (chỉ kệ bán) -->
                   <div
-                    v-if="activeShelf.role !== 'storage'"
+                    v-if="activeShelf.role === 'selling'"
                     @click.stop="openPriceEditor(tier.itemId, tierIdx)"
                     class="flex items-center gap-2 bg-gray-950 px-2.5 py-1 rounded-lg border border-emerald-500/30 
                            hover:bg-emerald-900/20 hover:border-emerald-500 transition-all cursor-pointer group/price"
@@ -362,18 +476,24 @@ const tierFillPct = (tierIndex: number): number => {
                     <span class="text-[10px] opacity-0 group-hover/price:opacity-100 transition-opacity">✏️</span>
                   </div>
                 </div>
+
+                <!-- Case: Display Case header -->
+                <div v-else-if="activeShelf.role === 'display_case'" class="flex items-center gap-2">
+                   <span class="text-[10px] text-indigo-400 font-bold italic">Tủ trưng bày Cards</span>
+                </div>
+
                 <span v-else class="text-xs text-gray-600 font-medium italic">[ Trống – Click để đặt hàng tại đây ]</span>
               </div>
 
                 <div class="flex items-center gap-3">
-                  <span v-if="selectedItemId && canPlaceInTier(tierIdx)" class="text-[10px] text-indigo-400 font-black uppercase tracking-widest animate-pulse">
+                  <span v-if="selectedItemId && activeShelf.role !== 'display_case' && canPlaceInTier(tierIdx)" class="text-[10px] text-indigo-400 font-black uppercase tracking-widest animate-pulse">
                     Click: Đặt hàng
                   </span>
-                  <span v-if="tier.itemId" class="text-[10px] text-gray-500 font-bold uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span v-if="tier.itemId && activeShelf.role !== 'display_case'" class="text-[10px] text-gray-500 font-bold uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">
                     Chuột phải: Lấy hàng
                   </span>
                   <EnhancedButton
-                    v-if="tier.itemId"
+                    v-if="tier.itemId && activeShelf.role !== 'display_case'"
                     variant="danger"
                     size="xs"
                     @click.stop="clearTier(tierIdx)"
@@ -385,12 +505,53 @@ const tierFillPct = (tierIndex: number): number => {
 
             <!-- Tier Content Visuals -->
             <div class="bg-gray-900/30 p-4 min-h-[90px] flex flex-col justify-center">
-              <div v-if="!tier.itemId" class="flex justify-center items-center h-16 text-gray-800 text-sm font-bold uppercase tracking-widest">
+              <div v-if="!tier.itemId && activeShelf.role !== 'display_case'" class="flex justify-center items-center h-16 text-gray-800 text-sm font-bold uppercase tracking-widest">
                 Empty Slot
               </div>
 
+              <!-- Display Case (Grid of 3 cards) -->
+              <div v-else-if="activeShelf.role === 'display_case'"
+                class="grid grid-cols-3 gap-6 py-2"
+              >
+                 <div
+                    v-for="(cardId, slotIdx) in tier.slots"
+                    :key="slotIdx"
+                    class="relative group/slot flex flex-col items-center"
+                 >
+                    <!-- Slot placeholder or Card -->
+                    <div
+                       class="w-full aspect-[2/3] max-w-[120px] rounded-lg border-2 flex items-center justify-center transition-all duration-300 cursor-pointer overflow-hidden"
+                       :class="cardId 
+                          ? 'border-indigo-400 bg-gray-900 shadow-lg' 
+                          : 'border-dashed border-gray-700 bg-gray-950/50 hover:border-indigo-500/50'"
+                       @click="handleDisplaySlotClick(tierIdx, slotIdx)"
+                       @contextmenu.prevent="handleSlotRightClick(tierIdx, slotIdx)"
+                    >
+                       <TcgCard 
+                          v-if="cardId" 
+                          :card="cardId ? apiStore.flatCardMap[cardId] : ({} as any)" 
+                          size="small" 
+                          :is-flipped="true"
+                       />
+                       <span v-else class="text-gray-800 text-3xl font-black">+</span>
+                    </div>
+
+                    <!-- Price tag for card -->
+                    <div 
+                       v-if="cardId"
+                       class="mt-2 bg-gray-950 px-2 py-0.5 rounded border border-emerald-500/50 flex items-center gap-2 cursor-pointer hover:bg-emerald-900/40"
+                       @click="openCardPriceEditor(cardId, tierIdx, slotIdx)"
+                    >
+                       <span class="text-[10px] font-mono text-emerald-400 font-bold">
+                          ${{ tier.customPriceMap?.[cardId]?.toFixed(2) }}
+                       </span>
+                       <span class="text-[10px]">✏️</span>
+                    </div>
+                 </div>
+              </div>
+
               <!-- Pack Display -->
-              <div v-else-if="inventoryStore.shopItems[tier.itemId]?.type === 'pack'"
+              <div v-else-if="tier.itemId && inventoryStore.shopItems[tier.itemId]?.type === 'pack'"
                 class="grid gap-1.5"
                 style="grid-template-columns: repeat(8, 1fr);"
               >
@@ -411,7 +572,7 @@ const tierFillPct = (tierIndex: number): number => {
               </div>
 
               <!-- Box Display -->
-              <div v-else-if="inventoryStore.shopItems[tier.itemId]?.type === 'box'"
+              <div v-else-if="tier.itemId && inventoryStore.shopItems[tier.itemId]?.type === 'box'"
                 class="grid grid-cols-4 gap-4"
               >
                 <div

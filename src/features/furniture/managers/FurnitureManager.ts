@@ -65,7 +65,10 @@ export class FurnitureManager {
   public displayShelf(shelf: ShelfData) {
     const isDouble  = shelf.furnitureId === 'shelf_double'
     const isStorage = shelf.role === 'storage'
-    const textureKey = isStorage ? TEX.SHELF_STORAGE : TEX.SHELF_SELLING
+    const textureKey =
+      isStorage ? TEX.SHELF_STORAGE
+      : shelf.role === 'display_case' ? TEX.DISPLAY_CASE
+      : TEX.SHELF_SELLING
 
     // Tạo sprite trong static group
     const sprite = this.shelvesGroup.create(shelf.x, shelf.y, textureKey) as Phaser.Physics.Arcade.Sprite

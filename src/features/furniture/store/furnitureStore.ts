@@ -25,7 +25,7 @@ const createShelf = (id: string, furnitureId: string, x: number, y: number): She
     x,
     y,
     tiers: Array.from({ length: numTiers }, () => createEmptyTier()),
-    role: (config?.role === 'storage' ? 'storage' : 'selling') as ShelfRole
+    role: (config?.role || 'selling') as ShelfRole
   }
 }
 
@@ -272,6 +272,103 @@ export const useFurnitureStore = defineStore('furniture', {
       const statsStore = useStatsStore()
       statsStore.dailyStats.itemsSold++
       return itemId
+    },
+
+    /**
+     * Đặt 1 card từ personalBinder lên display_case.
+     * Mỗi slot chứa 1 card (không stack giống pack).
+     */
+    placeCardOnDisplayCase(
+      shelfId: string,
+      tierIndex: number,
+      slotIndex: number,
+      cardId: string,
+      customPrice: number
+    ): boolean {
+      const inventoryStore = useInventoryStore()
+      const shelf = this.placedShelves[shelfId]
+      if (!shelf || shelf.role !== 'display_case') return false
+
+      // Check: Player có thẻ này trong binder không?
+      if (!inventoryStore.personalBinder[cardId] ||
+          inventoryStore.personalBinder[cardId] <= 0) {
+        return false
+      }
+
+      const tier = shelf.tiers[tierIndex]
+      if (slotIndex >= tier.maxSlots || tier.slots[slotIndex] != null) {
+        // Fallback: Nếu maxSlots chưa được set (kệ mới đặt)
+        const config = FURNITURE_ITEMS[shelf.furnitureId]
+        tier.maxSlots = config.slotsPerTier || 3
+        if (tier.slots.length === 0) tier.slots = Array(tier.maxSlots).fill(null)
+        if (slotIndex >= tier.maxSlots || tier.slots[slotIndex] != null) return false
+      }
+
+      // Init tier structure nếu chưa
+      if (!tier.customPriceMap) tier.customPriceMap = {}
+
+      tier.slots[slotIndex] = cardId
+      tier.itemId = cardId  // Thể hiện item chính trên tầng này
+      tier.customPriceMap[cardId] = customPrice
+
+      // Trừ khỏi binder
+      inventoryStore.personalBinder[cardId]--
+      if (inventoryStore.personalBinder[cardId] === 0) {
+        delete inventoryStore.personalBinder[cardId]
+      }
+      return true
+    },
+
+    /**
+     * NPC vãng lai xem 1 card trên display_case để cân nhắc mua.
+     * Trả về thông tin card nhưng KHÔNG xóa khỏi tủ.
+     */
+    npcPeekFromDisplayCase(shelfId: string): { cardId: string; price: number; tierIdx: number; slotIdx: number } | null {
+      const shelf = this.placedShelves[shelfId]
+      if (!shelf || shelf.role !== 'display_case') return null
+
+      const occupied: { tierIdx: number; slotIdx: number; cardId: string }[] = []
+      shelf.tiers.forEach((tier, tierIdx) => {
+        tier.slots.forEach((card, slotIdx) => {
+          if (card) occupied.push({ tierIdx, slotIdx, cardId: card })
+        })
+      })
+      if (occupied.length === 0) return null
+
+      const picked = occupied[Math.floor(Math.random() * occupied.length)]
+      const tier = shelf.tiers[picked.tierIdx]
+      const price = tier.customPriceMap?.[picked.cardId] ?? 0
+
+      return { price, ...picked }
+    },
+
+    /**
+     * NPC chốt mua card sau khi đã peek. Xóa card khỏi tủ.
+     */
+    npcCommitBuyFromDisplayCase(shelfId: string, tierIdx: number, slotIdx: number, cardId: string) {
+      const shelf = this.placedShelves[shelfId]
+      if (!shelf) return
+
+      const tier = shelf.tiers[tierIdx]
+      if (tier.slots[slotIdx] !== cardId) return
+
+      tier.slots[slotIdx] = null
+      if (tier.customPriceMap) delete tier.customPriceMap[cardId]
+
+      if (tier.slots.every(s => s === null)) {
+        tier.itemId = null
+      }
+    },
+
+    /**
+     * NPC vãng lai mua 1 card trên display_case (Legacy / Auto-commit).
+     */
+    npcBuyFromDisplayCase(shelfId: string): { cardId: string; price: number } | null {
+      const peeked = this.npcPeekFromDisplayCase(shelfId)
+      if (!peeked) return null
+
+      this.npcCommitBuyFromDisplayCase(shelfId, peeked.tierIdx, peeked.slotIdx, peeked.cardId)
+      return { cardId: peeked.cardId, price: peeked.price }
     },
 
     /**
