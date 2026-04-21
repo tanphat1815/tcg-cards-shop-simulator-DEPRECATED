@@ -90,8 +90,21 @@ export class EnvironmentManager {
     const { x, y, w, h } = this.shopBounds
     const thickness = 50
 
-    // Tường trên, trái, phải
-    this.wallTop = this.scene.add.rectangle(x + w / 2, y - thickness/2, w, thickness, 0x8B4513).setDepth(DEPTH.WALL)
+    // NORTH WALL: The physical collider must be tall enough to stop the player
+    // BEFORE they walk under the LAYER4_WALL_TOP tile sprite (height = 48px).
+    // We use a thickness of 96px (= 48px tile + 48px interior buffer) so the
+    // player is pushed back while still appearing to stand close to the wall.
+    // The wall rectangle is positioned so its BOTTOM edge aligns with startY,
+    // meaning it extends 96px upward into the "void" above the shop.
+    const NORTH_WALL_THICKNESS = 96
+    this.wallTop = this.scene.add.rectangle(
+      x + w / 2,
+      y - NORTH_WALL_THICKNESS / 2,
+      w,
+      NORTH_WALL_THICKNESS,
+      0x8B4513
+    ).setDepth(DEPTH.WALL)
+
     this.wallLeft = this.scene.add.rectangle(x - thickness/2, y + h / 2, thickness, h, 0x8B4513).setDepth(DEPTH.WALL)
     this.wallRight = this.scene.add.rectangle(x + w + thickness/2, y + h / 2, thickness, h, 0x8B4513).setDepth(DEPTH.WALL)
     
@@ -258,18 +271,10 @@ export class EnvironmentManager {
       this.shopBounds = { x: startX, y: startY, w: shopW, h: shopH }
       this.doorLocation = { x: startX + shopW / 2, y: startY + shopH }
 
-      // Camera Bounds — clamp strictly to the shop interior so the black void
-      // behind the walls is NEVER visible. We add SIDE_T (32px) padding on each
-      // side to account for the wall sprite width, so the camera stops exactly
-      // at the outer edge of the visible wall tiles.
-      const CAM_SIDE_PAD = 32  // matches SIDE_T wall thickness
-      const CAM_TOP_PAD  = 48  // matches wallTopSprite height
-      this.scene.cameras.main.setBounds(
-        startX - CAM_SIDE_PAD,
-        startY - CAM_TOP_PAD,
-        shopW + CAM_SIDE_PAD * 2,
-        shopH + CAM_TOP_PAD + CAM_SIDE_PAD
-      )
+      // DO NOT clamp camera to shop interior. The player must be free to walk
+      // outdoors to the Delivery Zone, Sidewalk, and Gym Town.
+      // Camera and physics bounds are set once in MainScene.create() to the
+      // full world size (5500 x 3000) and are never overwritten here.
 
       // 0. Street/Background
       this.outsideGraphics.clear()
@@ -287,47 +292,82 @@ export class EnvironmentManager {
         this.floorTileSprite.setDepth(DEPTH.LAYER1_FLOOR)
       }
 
-      // 2. WALL TOP (North) — Layer 4: The overhang that hides the player's head
-      // when they walk toward the top wall. Must ALWAYS be above Layer 3 entities.
-      // Height = 48px texture; origin (0, 1) so the base of the wall sits at startY.
+      // 2. WALL TOP (North) — Layer 2: Rendered behind characters.
+      // We change this from LAYER4 (9000) to LAYER2 (20) so that characters
+      // standing "against" the wall are not obscured by the ceiling overhang.
       if (!this.wallTopSprite) {
         this.wallTopSprite = this.scene.add.tileSprite(startX, startY, shopW, 48, TEX.WALL_TOP)
           .setOrigin(0, 1)
-          .setDepth(DEPTH.LAYER4_WALL_TOP)
+          .setDepth(DEPTH.LAYER2_WALL_BASE + 5)
       } else {
         this.wallTopSprite.setPosition(startX, startY)
         this.wallTopSprite.setSize(shopW, 48)
-        this.wallTopSprite.setDepth(DEPTH.LAYER4_WALL_TOP)
+        this.wallTopSprite.setDepth(DEPTH.LAYER2_WALL_BASE + 5)
       }
 
-      // 3. WALL SIDES (left, right, bottom) — Layer 2: Low wall bases that sit
-      // BEHIND entities so feet can collide with physics walls while the wall
-      // visual base is visible under the entity sprite.
+      // 3. WALL SIDES — Layer 2 (base) + Layer 4 (top cap).
+      //
+      // ARCHITECTURAL APPROACH FOR 2.5D VERTICAL WALLS:
+      // A tileSprite stretched horizontally across shopH pixels makes the wall
+      // texture scroll SIDEWAYS (like a carpet), not vertically. This looks flat.
+      //
+      // The correct approach: treat each side wall as a COLUMN of individual
+      // tile sprites, each one tile-texture tall, stacked from top to bottom.
+      // This preserves the vertical texture orientation (bricks read downward).
+      //
+      // TILE_H = the pixel height of the TEX.WALL_SIDE texture frame.
+      // We use 32px as the canonical tile size (matches FLOOR_TILE).
+      //
+      // Each column tile is drawn at:
+      //   depth = LAYER3_OBJECTS + tileY   (same Y-sort formula as entities)
+      // so that entities can correctly walk in FRONT of the lower wall tiles
+      // and BEHIND the upper wall tiles.
+
       this.wallSideSprites.forEach(s => s.destroy())
       this.wallSideSprites = []
 
-      const SIDE_T = 32 // visual wall thickness in pixels
-      // Left wall
-      this.wallSideSprites.push(
-        this.scene.add.tileSprite(startX - SIDE_T, startY, SIDE_T, shopH, TEX.WALL_SIDE)
-          .setOrigin(0, 0).setDepth(DEPTH.LAYER2_WALL_BASE)
-      )
-      // Right wall
-      this.wallSideSprites.push(
-        this.scene.add.tileSprite(startX + shopW, startY, SIDE_T, shopH, TEX.WALL_SIDE)
-          .setOrigin(0, 0).setDepth(DEPTH.LAYER2_WALL_BASE)
-      )
-      // Bottom walls (gap for door)
+      const SIDE_T   = 32  // wall pillar width (pixels)
+      const TILE_H   = 32  // height of one wall tile row (pixels)
       const doorWidth = 80
       const sideWallW = (shopW - doorWidth) / 2
-      this.wallSideSprites.push(
-        this.scene.add.tileSprite(startX, startY + shopH, sideWallW, SIDE_T, TEX.WALL_SIDE)
-          .setOrigin(0, 0).setDepth(DEPTH.LAYER2_WALL_BASE)
-      )
-      this.wallSideSprites.push(
-        this.scene.add.tileSprite(startX + shopW - sideWallW, startY + shopH, sideWallW, SIDE_T, TEX.LAYER2_WALL_BASE)
-          .setOrigin(0, 0).setDepth(DEPTH.LAYER2_WALL_BASE)
-      )
+
+      // Helper: stack wall tiles vertically to build one wall column/row.
+      // For left/right pillars: iterate Y from startY to startY+shopH.
+      // For bottom strips:      iterate X from startX to startX+sideWallW.
+      const addVerticalColumn = (colX: number, colY: number, totalH: number, colW: number) => {
+        let y = colY
+        while (y < colY + totalH) {
+          const tileH = Math.min(TILE_H, colY + totalH - y)
+          const tile = this.scene.add.tileSprite(colX, y, colW, tileH, TEX.WALL_SIDE)
+            .setOrigin(0, 0)
+            // Y-sort depth: lower tiles render in front of higher tiles, matching
+            // the perspective of a 2.5D camera. Entities walking in front of the
+            // bottom of the wall will sort above it; entities near the top will
+            // sort below the upper tiles.
+            // Using a -5 offset ensures characters win tie-breakers at the same Y.
+            .setDepth(DEPTH.LAYER3_OBJECTS + y - 5)
+          this.wallSideSprites.push(tile)
+          y += TILE_H
+        }
+      }
+
+      const addHorizontalStrip = (stripX: number, stripY: number, totalW: number, stripH: number) => {
+        // Bottom wall strips are drawn at a fixed depth just below Layer4 so
+        // they always render above floor but behind entities that stand in front.
+        const tile = this.scene.add.tileSprite(stripX, stripY, totalW, stripH, TEX.WALL_SIDE)
+          .setOrigin(0, 0)
+          .setDepth(DEPTH.LAYER3_OBJECTS + stripY - 5)
+        this.wallSideSprites.push(tile)
+      }
+
+      // Left pillar
+      addVerticalColumn(startX - SIDE_T, startY, shopH, SIDE_T)
+      // Right pillar
+      addVerticalColumn(startX + shopW, startY, shopH, SIDE_T)
+      // Bottom-left strip (left of door)
+      addHorizontalStrip(startX, startY + shopH, sideWallW, SIDE_T)
+      // Bottom-right strip (right of door)
+      addHorizontalStrip(startX + shopW - sideWallW, startY + shopH, sideWallW, SIDE_T)
 
       // XỬ LÝ PREVIEW MỞ RỘNG (BLUEPRINT/GLOW) — Layer 4 so it's visible above entities
       if (this.scene.previewGraphics) {
@@ -380,9 +420,11 @@ export class EnvironmentManager {
     }
 
     // Gán lại vị trí và cập nhật Engine Vật lý
-    // Top wall
-    this.wallTop.setPosition(x + w / 2, y - thickness / 2)
-    this.wallTop.setSize(w, thickness)
+    // North wall uses the taller thickness so the player cannot walk under
+    // the LAYER4_WALL_TOP overhang tile.
+    const NORTH_WALL_THICKNESS = 96  // Must match the value in createWalls()
+    this.wallTop.setPosition(x + w / 2, y - NORTH_WALL_THICKNESS / 2)
+    this.wallTop.setSize(w, NORTH_WALL_THICKNESS)
     updateBody(this.wallTop)
 
     // Left wall

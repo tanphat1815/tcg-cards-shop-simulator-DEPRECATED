@@ -100,6 +100,7 @@ export class NPCManager {
     )
     npcSprite.setOrigin(0.5, 1)              // R1 — foot anchor (bottom-center)
     applyFootCollider(npcSprite, 0.3)        // R3 — only bottom 30% is a collider
+    npcSprite.refreshBody()
     npcSprite.setCollideWorldBounds(true)
     applyDynamicYSort(npcSprite)             // R2 — initial Y-sort depth (updated every frame)
 
@@ -309,8 +310,15 @@ export class NPCManager {
         customer.assignedTableId = bestTableId
         customer.seatIndex = seatIndex
         const table = store.placedTables[bestTableId]
-        customer.targetX = seatIndex === 0 ? table.x - 22 : table.x + 22
-        customer.targetY = table.y
+        const isVertical = (table.rotation ?? 0) === 90
+
+        if (isVertical) {
+          customer.targetX = table.x
+          customer.targetY = seatIndex === 0 ? table.y - 30 : table.y + 30
+        } else {
+          customer.targetX = seatIndex === 0 ? table.x - 30 : table.x + 30
+          customer.targetY = table.y
+        }
         this.scene.physics.moveTo(customer.sprite, customer.targetX, customer.targetY, this.npcSpeed)
       }
     } else {
@@ -331,6 +339,10 @@ export class NPCManager {
     const dist = Phaser.Math.Distance.Between(customer.sprite.x, customer.sprite.y, customer.targetX, customer.targetY)
     if (dist < 12) {
       customer.sprite.body!.velocity.set(0)
+      // Snap to exact seat position so Y-sort depth is correct immediately.
+      customer.sprite.setPosition(customer.targetX, customer.targetY)
+      // applyDynamicYSort is called every frame in updateNPCAnimation, so
+      // depth will be correct on the very next frame automatically.
       customer.state = 'PLAYING'
       customer.timer = 0
     }
@@ -394,8 +406,14 @@ export class NPCManager {
               customer.state = 'SEEK_TABLE'
               customer.assignedTableId = table.id
               customer.seatIndex = seatIndex
-              customer.targetX = seatIndex === 0 ? table.x - 22 : table.x + 22
-              customer.targetY = table.y
+              const isVertical = (table.rotation ?? 0) === 90
+              if (isVertical) {
+                customer.targetX = table.x
+                customer.targetY = seatIndex === 0 ? table.y - 30 : table.y + 30
+              } else {
+                customer.targetX = seatIndex === 0 ? table.x - 30 : table.x + 30
+                customer.targetY = table.y
+              }
               this.scene.physics.moveTo(customer.sprite, customer.targetX, customer.targetY, this.npcSpeed)
               found = true
               break

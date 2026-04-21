@@ -87,6 +87,7 @@ export class StaffManager {
         )
         sprite.setOrigin(0.5, 1)             // R1: foot anchor
         applyFootCollider(sprite, 0.3)       // R3: bottom 30% collider
+        sprite.refreshBody()
         sprite.setCollideWorldBounds(true)
         applyDynamicYSort(sprite)            // R2: initial Y-sort depth
         

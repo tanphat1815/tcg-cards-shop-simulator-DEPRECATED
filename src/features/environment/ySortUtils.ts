@@ -16,7 +16,13 @@ export function applyDynamicYSort(
   sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
 ): void {
   sprite.setOrigin(0.5, 1)
-  sprite.setDepth(DEPTH.LAYER3_OBJECTS + sprite.y)
+  
+  // Use physics body bottom if available for pixel-perfect feet sorting.
+  // This ignores any transparent padding at the bottom of the texture frame.
+  const body = sprite.body as Phaser.Physics.Arcade.Body
+  const ySort = body ? body.bottom : sprite.y
+  
+  sprite.setDepth(DEPTH.LAYER3_OBJECTS + ySort)
 }
 
 /**
@@ -29,24 +35,39 @@ export function applyStaticYSort(
   sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
 ): void {
   sprite.setOrigin(0.5, 1)
-  sprite.setDepth(DEPTH.LAYER3_OBJECTS + sprite.y)
+  
+  const body = sprite.body as Phaser.Physics.Arcade.Body
+  const ySort = body ? body.bottom : sprite.y
+
+  // Static objects (furniture, walls) get a tiny depth penalty (-0.1) 
+  // to ensure dynamic entities (Player, NPC) render ON TOP in case of a Y-tie.
+  sprite.setDepth(DEPTH.LAYER3_OBJECTS + ySort - 0.1)
 }
 
 /**
  * Applies a "foot collider" hitbox — only the bottom portion of the sprite
- * participates in physics, allowing the player to visually walk behind
- * the top 70% of furniture/walls.
+ * participates in physics, allowing the player to visually walk BEHIND the
+ * upper portion of furniture and walls.
  *
- * Hitbox dimensions:
- *   width  = 100% of sprite's TEXTURE width (full width for natural feel)
- *   height = footRatio × sprite's TEXTURE height (default 30% = bottom third)
+ * CRITICAL IMPLEMENTATION NOTE:
+ * When setOrigin(0.5, 1) is used, the sprite's (x, y) represents the
+ * BOTTOM-CENTER of the display frame. Phaser's physics body offset is always
+ * measured in TEXTURE SPACE from the TOP-LEFT corner of the texture frame,
+ * regardless of the visual origin. This means:
  *
- * Offset calculation (Phaser uses TEXTURE-space offsets, not display-space):
- *   offsetX = 0  (full width — no horizontal narrowing)
- *   offsetY = textureHeight × (1 - footRatio)  (push body down to the bottom)
+ *   - sprite.width  → display width  (= texture width  * scaleX)
+ *   - sprite.height → display height (= texture height * scaleY)
+ *   - body.setSize() takes DISPLAY-space pixel values directly
+ *   - body.setOffset() is measured from the TEXTURE top-left in DISPLAY pixels
  *
- * @param sprite  The physics sprite to modify.
- * @param footRatio  Fraction of sprite height used as the collider (0.3 = bottom 30%).
+ * With origin (0.5, 1):
+ *   - The body must start at offsetY = displayHeight * (1 - footRatio)
+ *     so its top aligns with where the foot region begins.
+ *   - The body height = displayHeight * footRatio
+ *   - offsetX = 0 (body spans the full width, centred by Phaser automatically)
+ *
+ * @param sprite     The physics sprite to modify. Must have origin (0.5, 1).
+ * @param footRatio  Fraction of display height to use as collider (default 0.3 = bottom 30%).
  */
 export function applyFootCollider(
   sprite: Phaser.Physics.Arcade.Sprite,
@@ -55,19 +76,20 @@ export function applyFootCollider(
   const body = sprite.body as Phaser.Physics.Arcade.Body
   if (!body) return
 
-  // Use texture (frame) dimensions — these are in TEXTURE SPACE before scale is applied.
-  const texW = sprite.width   // raw texture width
-  const texH = sprite.height  // raw texture height
+  // Use the DISPLAY dimensions (already accounts for scale).
+  const displayW = sprite.displayWidth
+  const displayH = sprite.displayHeight
 
-  // Body dimensions in TEXTURE space.
-  const bodyW = texW          // full width
-  const bodyH = texH * footRatio
+  // The collider is a rectangle occupying the bottom `footRatio` of the sprite.
+  const bodyW   = displayW
+  const bodyH   = displayH * footRatio
 
-  // Offset: push the body to the bottom of the texture.
-  // Because origin is (0.5, 1), Phaser's body origin is also relative to the texture
-  // origin (top-left). So we need to offset from the top-left of the texture.
+  // Offset from the TEXTURE top-left (display pixels).
+  // With origin (0.5, 1), the texture top is at -(displayH) relative to the
+  // foot anchor. The offset must push the body down so its TOP aligns with
+  // the start of the foot region.
   const offsetX = 0
-  const offsetY = texH * (1 - footRatio)
+  const offsetY = displayH * (1 - footRatio)
 
   body.setSize(bodyW, bodyH)
   body.setOffset(offsetX, offsetY)

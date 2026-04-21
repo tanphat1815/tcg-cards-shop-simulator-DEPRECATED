@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { DEPTH } from '../../environment/config'
 import { TEX } from '../../environment/assetKeys'
-import { applyFootCollider, applyStaticYSort, applyDynamicYSort } from '../../environment/ySortUtils'
+import { applyFootCollider, applyStaticYSort } from '../../environment/ySortUtils'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import type { ShelfData, PlayTableData, CashierData } from '../types'
 
@@ -83,11 +83,12 @@ export class FurnitureManager {
       sprite.setScale(1.1, 1.1)
     }
 
-    // R3: Foot Collider — chỉ 30% đáy là physical body
-    applyFootCollider(sprite, 0.3)
-
-    // Sau khi sửa origin + scale + body, BẮT BUỘC refreshBody để StaticBody đồng bộ.
+    // Step 1: Sync physics body with sprite scale/position
     sprite.refreshBody()
+
+    // Step 2: Carve out the "foot area" hitbox within that synced body.
+    // R3: Foot Collider — only 20% of bottom is solid to allow walking "behind" top visuals.
+    applyFootCollider(sprite, 0.2)
 
     // R2: Static Y-Sort — called ONCE at spawn.
     // Depth = LAYER3_OBJECTS + sprite.y (set inside applyStaticYSort).
@@ -118,8 +119,9 @@ export class FurnitureManager {
     sprite.setOrigin(0.5, 1)
     if (isVertical) sprite.setAngle(90) // Xoay 90 độ nếu cần
     
-    applyFootCollider(sprite, 0.7) // Play table is nearly flat
     sprite.refreshBody()
+    // Play table collider is thin (20%) to allow players/NPCs to stand "at" the table.
+    applyFootCollider(sprite, 0.2) 
     applyStaticYSort(sprite)
 
     // Label — above entities
@@ -139,8 +141,9 @@ export class FurnitureManager {
     sprite.setData('type', 'cashier')
     
     sprite.setOrigin(0.5, 1)
-    applyFootCollider(sprite, 0.6) // Quầy thu ngân dày
     sprite.refreshBody()
+    // Cashier desk is thin (30%) to allow player to stand "behind" the counter visually.
+    applyFootCollider(sprite, 0.3) 
     applyStaticYSort(sprite)
 
     // Label indicator (nếu cần update sau này, hiện tại chỉ vẽ sprite)

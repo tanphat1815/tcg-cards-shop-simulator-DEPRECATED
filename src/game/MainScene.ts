@@ -12,7 +12,7 @@ import wallTopImg from '../assets/images/wall_top.png'
 import wallSideImg from '../assets/images/wall_side.png'
 import sidewalkTileImg from '../assets/images/sidewalk_tile.png'
 import { TEX } from '../features/environment/assetKeys'
-import { applyDynamicYSort, applyStaticYSort, applyFootCollider } from '../features/environment/ySortUtils'
+import { applyDynamicYSort, applyFootCollider } from '../features/environment/ySortUtils'
 import { useGameStore } from '../features/shop-ui/store/gameStore'
 import { useStatsStore } from '../features/stats/store/statsStore'
 import { useCustomerStore } from '../features/customer/store/customerStore'
@@ -170,10 +170,12 @@ export default class MainScene extends Phaser.Scene {
     this.setupUI()
 
     // 4. Thiết lập vật lý và môi trường khởi đầu
-    // Physics world is large to accommodate Town area.
-    // Camera bounds will be tightened to shop walls by refreshEnvironment().
+    // Full world bounds — never clamp smaller than this.
+    // Camera bounds stay at full world size so the player can freely roam
+    // the outdoor Delivery Zone, Sidewalk, Staff Rest Area, and Gym Town.
     this.physics.world.setBounds(0, 0, 5500, 3000)
-    this.cameras.main.setBounds(0, 0, 5500, 3000) // temporary; overwritten below
+    this.cameras.main.setBounds(0, 0, 5500, 3000)
+    this.cameras.main.setBackgroundColor('#000000')
     this.environmentManager.initializeEnvironment()
     this.furnitureManager.initializeFurniture()
     this.townManager.initializeTown()
@@ -190,6 +192,7 @@ export default class MainScene extends Phaser.Scene {
     // This allows the player's body to visually overlap shelves/walls
     // while the feet correctly collide with the base physics bodies.
     applyFootCollider(this.player, 0.3)
+    this.player.refreshBody()
 
     // Physics
     this.player.setCollideWorldBounds(true)
@@ -293,15 +296,7 @@ export default class MainScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Đăng ký các Frame Animations cho Player và NPC (Legacy)
-   */
-  private setupAnimations() {
-    const anims = this.anims
-    if (!anims.exists('player-down-legacy')) {
-      // Giữ key cũ nếu cần, nhưng blueprint bảo dùng registerCharacterAnimations mới
-    }
-  }
+
 
   /**
    * Khởi tạo các phần tử UI overlay trong Phaser (như text báo chế độ Setup)
@@ -455,11 +450,26 @@ export default class MainScene extends Phaser.Scene {
 
   /**
    * Cập nhật trạng thái hiển thị Debug Physics dựa trên Settings.
+   *
+   * When enabled, Phaser draws purple outlines around every active physics body.
+   * Use this to verify that applyFootCollider() is correctly placing hitboxes
+   * at the bottom 30% of sprites. The purple box should sit strictly at the
+   * feet/base of the Player, NPCs, and furniture sprites.
+   *
+   * To enable in-game: open Settings (⚙️) and toggle "Hiển thị vùng va chạm".
+   * To enable immediately for debugging, temporarily set:
+   *   this.physics.world.debugGraphic — see createDebugGraphic() below.
    */
   private updateDebugPhysics() {
     const statsStore = useStatsStore()
     if (!this.debugGraphic) {
+      // createDebugGraphic() returns a Graphics object that Phaser auto-populates
+      // each frame with coloured outlines:
+      //   Purple  = static body (walls, furniture)
+      //   Red     = dynamic body (player, NPC)
+      //   Green   = overlap/sensor zone
       this.debugGraphic = this.physics.world.createDebugGraphic()
+      this.debugGraphic.setDepth(99999) // Always render on top of everything
     }
     this.debugGraphic.setVisible(statsStore.settings.showDebugPhysics)
   }
@@ -833,16 +843,55 @@ export default class MainScene extends Phaser.Scene {
   }
 
   /**
+   * Central mapping logic for furniture visual profiles.
+   * Matches FurnitureManager.ts logic exactly.
+   */
+  private getFurnitureProfile(furnitureId: string) {
+    let texture: string = TEX.SHELF_SELLING
+    let scX = 1.0
+    let scY = 1.0
+    let tint = 0xffffff
+    let ratio = 0.2
+
+    switch (furnitureId) {
+      case 'play_table':
+        texture = TEX.PLAY_TABLE
+        ratio = 0.2
+        break
+      case 'cashier_desk':
+        texture = TEX.CASHIER_DESK
+        ratio = 0.3
+        break
+      case 'shelf_single':
+        texture = TEX.SHELF_SELLING
+        scX = 1.1; scY = 1.1
+        break
+      case 'shelf_double':
+        texture = TEX.SHELF_SELLING
+        scX = 1.2; scY = 1.0
+        tint = 0x8B4513 // Dark Brown
+        break
+      case 'storage_shelf':
+        texture = TEX.SHELF_STORAGE
+        break
+      case 'warehouse_shelf':
+        texture = TEX.SHELF_STORAGE
+        scX = 1.1; scY = 1.1
+        break
+    }
+
+    return { texture, scX, scY, tint, ratio }
+  }
+
+  /**
    * Cập nhật vị trí bóng mờ (Ghost) của vật dụng đang định đặt.
    */
   private updateGhostPosition(pointer: Phaser.Input.Pointer, store: any) {
     if (!this.ghostSprite && !this.ghostRectangle) {
       const furnitureId = store.buildItemId || store.editFurnitureData?.furnitureId
-      const isTable = furnitureId === 'play_table'
-      const isCashier = furnitureId === 'cashier_desk'
+      const profile = this.getFurnitureProfile(furnitureId)
       
-      if (isTable) {
-        // Tạo Ghost Table chi tiết hơn (Bàn + 2 Ghế)
+      if (furnitureId === 'play_table') {
         const isVer = this.currentRotation === 90
         const w = isVer ? 40 : 80
         const h = isVer ? 80 : 40
@@ -851,7 +900,6 @@ export default class MainScene extends Phaser.Scene {
         const rect = this.add.rectangle(0, 0, w, h, 0x7f8c8d).setStrokeStyle(2, 0x95a5a6)
         container.add(rect)
         
-        // Vẽ 2 ghế mờ
         if (isVer) {
            container.add(this.add.rectangle(0, -h/2 - 10, 24, 20, 0x7f8c8d, 0.5))
            container.add(this.add.rectangle(0, h/2 + 10, 24, 20, 0x7f8c8d, 0.5))
@@ -866,11 +914,10 @@ export default class MainScene extends Phaser.Scene {
         this.ghostText = this.add.text(0, -h/2 - 20, 'ROTATE: R', { fontSize: '10px', color: '#fff' }).setOrigin(0.5)
         this.ghostText.setDepth(DEPTH.GHOST + 1)
       } else {
-        const texture = isCashier ? 'cashier' : 'shelf'
-        this.ghostSprite = this.add.sprite(0, 0, texture)
+        this.ghostSprite = this.add.sprite(0, 0, profile.texture)
+        this.ghostSprite.setScale(profile.scX, profile.scY)
+        this.ghostSprite.setTint(profile.tint)
         this.ghostSprite.setAlpha(0.6).setDepth(DEPTH.GHOST)
-        
-        // Hiện gợi ý xoay nếu là vật thể có thể xoay (hiện tại mới bàn chơi hỗ trợ)
       }
     }
 
@@ -878,6 +925,8 @@ export default class MainScene extends Phaser.Scene {
       this.ghostRectangle.setPosition(pointer.worldX, pointer.worldY)
       if (this.ghostText) this.ghostText.setPosition(pointer.worldX, pointer.worldY)
     } else if (this.ghostSprite) {
+      // R1: Foot anchor (0.5, 1) to match placed furniture
+      this.ghostSprite.setOrigin(0.5, 1)
       this.ghostSprite.setPosition(pointer.worldX, pointer.worldY)
     }
   }
@@ -898,10 +947,22 @@ export default class MainScene extends Phaser.Scene {
       return false
     }
 
-    // Kiểm tra va chạm với các vật thể. Sử dụng hitbox nhỏ hơn visual để dễ đặt đồ (Sửa lỗi "vướng")
-    const w = this.ghostRectangle ? 50 : 30
-    const h = this.ghostRectangle ? 30 : 30
-    const rect = new Phaser.Geom.Rectangle(pointer.worldX - w/2, pointer.worldY - h/2, w, h)
+    // R3: 2.5D Placement Check — calculate narrow "footprint" box
+    const furnitureId = useGameStore().buildItemId || useGameStore().editFurnitureData?.furnitureId
+    const profile = this.getFurnitureProfile(furnitureId || '')
+
+    let w = 30
+    let h = 30
+    if (this.ghostSprite) {
+      w = this.ghostSprite.displayWidth
+      h = this.ghostSprite.displayHeight * profile.ratio
+    } else if (this.ghostRectangle) {
+      w = (this.ghostRectangle as any).width || 80
+      h = ((this.ghostRectangle as any).height || 40) * profile.ratio
+    }
+
+    // Since Origin is (0.5, 1), pointer is at the feet.
+    const rect = new Phaser.Geom.Rectangle(pointer.worldX - w/2, pointer.worldY - h, w, h)
 
     const obstacleGroups = [
       this.environmentManager.wallsGroup,
@@ -911,15 +972,16 @@ export default class MainScene extends Phaser.Scene {
     ]
 
     for (const group of obstacleGroups) {
-      const children = group.getChildren()
-      for (const child of children) {
+      for (const child of group.getChildren()) {
         const sprite = child as any
         if (useGameStore().editFurnitureData?.id === sprite.getData('id')) continue
         
-        const b = (child instanceof Phaser.Physics.Arcade.Sprite && sprite.texture.key === '') ? 
-                  new Phaser.Geom.Rectangle(sprite.x - 30, sprite.y - 20, 60, 40) : sprite.getBounds()
-        
-        if (Phaser.Geom.Intersects.RectangleToRectangle(rect, b)) return false
+        // CHECK PHYSICS BODY, NOT VISUAL BOUNDS
+        const body = sprite.body as Phaser.Physics.Arcade.Body
+        if (!body) continue
+
+        const obstacleRect = new Phaser.Geom.Rectangle(body.x, body.y, body.width, body.height)
+        if (Phaser.Geom.Intersects.RectangleToRectangle(rect, obstacleRect)) return false
       }
     }
 
@@ -1015,8 +1077,34 @@ export default class MainScene extends Phaser.Scene {
       this.placementGraphics.fillRect(bounds.x + bounds.w - pad, bounds.y, pad, bounds.h) // Right
     }
 
-    // 2. Vẽ vùng va chạm của các vật thể hiện có
-    this.placementGraphics.fillStyle(0xff0000, 0.3)
+    // 2. Vẽ vùng chân (Ghost Footprint) đang định đặt
+    if (this.ghostSprite || this.ghostRectangle) {
+      const isValid = this.validatePlacement(this.input.activePointer)
+      this.placementGraphics.fillStyle(isValid ? 0x00ff00 : 0xff0000, 0.4)
+      
+      const furnitureId = store.buildItemId || store.editFurnitureData?.furnitureId
+      const profile = this.getFurnitureProfile(furnitureId || '')
+
+      let w = 30
+      let h = 30
+      if (this.ghostSprite) {
+        w = this.ghostSprite.displayWidth
+        h = this.ghostSprite.displayHeight * profile.ratio
+      } else if (this.ghostRectangle) {
+        w = (this.ghostRectangle as any).width || 80
+        h = ((this.ghostRectangle as any).height || 40) * profile.ratio
+      }
+
+      this.placementGraphics.fillRect(this.input.activePointer.worldX - w/2, this.input.activePointer.worldY - h, w, h)
+      this.placementGraphics.lineStyle(2, isValid ? 0x00ff00 : 0xff0000, 1)
+      this.placementGraphics.strokeRect(this.input.activePointer.worldX - w/2, this.input.activePointer.worldY - h, w, h)
+    }
+
+    // 2. Vẽ vùng va chạm (Physics Bodies) của các nội thất và tường
+    // Chúng ta dùng màu Hồng (Magenta) để người chơi dễ dàng kiểm chứng tỷ lệ chân.
+    this.placementGraphics.fillStyle(0xff00ff, 0.3)
+    this.placementGraphics.lineStyle(1, 0xff00ff, 1)
+
     const obstacleGroups = [
       this.environmentManager.wallsGroup,
       this.furnitureManager.cashierGroup,
@@ -1027,9 +1115,14 @@ export default class MainScene extends Phaser.Scene {
     obstacleGroups.forEach(group => {
       group.getChildren().forEach(child => {
         const sprite = child as Phaser.Physics.Arcade.Sprite
+        const body   = sprite.body as Phaser.Physics.Arcade.Body
+        if (!body) return
+        
         if (store.editFurnitureData?.id === sprite.getData('id')) return
-        const b = sprite.getBounds()
-        this.placementGraphics.fillRect(b.x, b.y, b.width, b.height)
+        
+        // Vẽ chính xác hình chữ nhật va chạm (Physical Hitbox)
+        this.placementGraphics.fillRect(body.x, body.y, body.width, body.height)
+        this.placementGraphics.strokeRect(body.x, body.y, body.width, body.height)
       })
     })
   }
