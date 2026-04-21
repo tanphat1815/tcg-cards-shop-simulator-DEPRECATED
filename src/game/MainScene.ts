@@ -1,9 +1,18 @@
 import Phaser from 'phaser'
-import playerImg from '../assets/images/player.svg'
-import npcImg from '../assets/images/npc.svg'
-import shelfImg from '../assets/images/shelf.svg'
-import warehouseShelfImg from '../assets/images/warehouse_shelf.svg'
-import cashierImg from '../assets/images/cashier.svg'
+import playerSheet from '../assets/images/player_sheet.png'
+import npcSheet from '../assets/images/npc_sheet.png'
+import staffSheet from '../assets/images/staff_sheet.png'
+import shelfSellingImg from '../assets/images/shelf_selling.png'
+import shelfStorageImg from '../assets/images/shelf_storage.png'
+import cashierDeskImg from '../assets/images/cashier_desk.png'
+import playTableImg from '../assets/images/play_table.png'
+import boxItemImg from '../assets/images/box_item.png'
+import floorTileImg from '../assets/images/floor_tile.png'
+import wallTopImg from '../assets/images/wall_top.png'
+import wallSideImg from '../assets/images/wall_side.png'
+import sidewalkTileImg from '../assets/images/sidewalk_tile.png'
+import { TEX } from '../features/environment/assetKeys'
+import { applyDynamicYSort, applyFootCollider } from '../features/environment/ySortUtils'
 import { useGameStore } from '../features/shop-ui/store/gameStore'
 import { useStatsStore } from '../features/stats/store/statsStore'
 import { useCustomerStore } from '../features/customer/store/customerStore'
@@ -96,14 +105,35 @@ export default class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Tải các tài nguyên hình ảnh cần thiết trước khi vào game.
+   * Tải toàn bộ tài nguyên đồ họa 2.5D.
+   * 
+   * QUY TẮC:
+   * - Spritesheet: 32x48 per frame, layout 4 cột x 4 hàng (DOWN/LEFT/RIGHT/UP).
+   * - Image furniture: origin sẽ được setOrigin(0.5, 1) khi instantiate.
+   * - TẤT CẢ key phải đi qua TEX constant, không hardcode.
    */
   preload() {
-    this.load.spritesheet('player', playerImg, { frameWidth: 32, frameHeight: 32 })
-    this.load.spritesheet('npc', npcImg, { frameWidth: 32, frameHeight: 32 })
-    this.load.image('shelf', shelfImg)
-    this.load.image('warehouse_shelf', warehouseShelfImg)
-    this.load.image('cashier', cashierImg)
+    // --- Characters (spritesheets) ---
+    this.load.spritesheet(TEX.PLAYER, playerSheet, { frameWidth: 32, frameHeight: 48 })
+    this.load.spritesheet(TEX.NPC,    npcSheet,    { frameWidth: 32, frameHeight: 48 })
+    this.load.spritesheet(TEX.STAFF,  staffSheet,  { frameWidth: 32, frameHeight: 48 })
+
+    // --- Furniture (single images) ---
+    this.load.image(TEX.SHELF_SELLING, shelfSellingImg)
+    this.load.image(TEX.SHELF_STORAGE, shelfStorageImg)
+    this.load.image(TEX.CASHIER_DESK,  cashierDeskImg)
+    this.load.image(TEX.PLAY_TABLE,    playTableImg)
+
+    // --- Delivery ---
+    this.load.image(TEX.BOX_ITEM, boxItemImg)
+
+    // --- Environment tiles ---
+    this.load.image(TEX.FLOOR_TILE,    floorTileImg)
+    this.load.image(TEX.WALL_TOP,      wallTopImg)
+    this.load.image(TEX.WALL_SIDE,     wallSideImg)
+    this.load.image(TEX.SIDEWALK_TILE, sidewalkTileImg)
+
+    // --- Legacy (giữ lại để không phá Town/Gym) ---
     this.load.image('gym_building', gymBuildingImg)
   }
 
@@ -112,6 +142,9 @@ export default class MainScene extends Phaser.Scene {
    */
   create() {
     const gameStore = useGameStore()
+
+    // 🆕 BẮT BUỘC — đăng ký anims TRƯỚC khi spawn bất kỳ entity nào
+    this.registerCharacterAnimations()
 
     // 1. Khởi tạo Layers đồ họa trước để các Managers có thể vẽ lên
     this.previewGraphics = this.add.graphics().setDepth(DEPTH.PREVIEW)
@@ -133,7 +166,7 @@ export default class MainScene extends Phaser.Scene {
     this.townManager = new TownManager(this)
 
     // 3. Thiết lập Visuals (Animations & UI tĩnh)
-    this.setupAnimations()
+    // this.setupAnimations() // XOÁ logic anim cũ
     this.setupUI()
 
     // 4. Thiết lập vật lý và môi trường khởi đầu
@@ -144,9 +177,25 @@ export default class MainScene extends Phaser.Scene {
     this.townManager.initializeTown()
 
     // 5. Khởi tạo Nhân vật người chơi (Đặt tại cửa shop)
-    const doorPos = this.environmentManager.getDoorLocation()
-    this.player = this.physics.add.sprite(doorPos.x, doorPos.y - 150, 'player')
-    this.player.setCollideWorldBounds(true).setDepth(DEPTH.PLAYER)
+    // ==================== SPAWN PLAYER (2.5D) ====================
+    const doorLoc = this.environmentManager.getDoorLocation()
+    this.player = this.physics.add.sprite(doorLoc.x, doorLoc.y - 50, TEX.PLAYER, 0)
+
+    // R1: Foot Anchor — origin giữa-đáy
+    this.player.setOrigin(0.5, 1)
+
+    // R3: Foot Collider — hitbox chỉ 30% phần đáy
+    applyFootCollider(this.player, 0.3)
+
+    // Physics cơ bản
+    this.player.setCollideWorldBounds(true)
+
+    // Ban đầu depth = y để Y-sort ngay lập tức (cập nhật liên tục trong update)
+    this.player.setDepth(this.player.y)
+
+    // Animation mặc định — đứng quay xuống
+    this.player.anims.play('player-down', true)
+    this.player.anims.stop() // Đứng im ở frame 0
 
     // 6. Cấu hình va chạm (Collisions)
     this.physics.add.collider(this.player, this.environmentManager.wallsGroup)
@@ -202,20 +251,49 @@ export default class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Đăng ký các Frame Animations cho Player và NPC
+   * Đăng ký animation 4 hướng cho tất cả entity dùng spritesheet 4x4.
+   * Naming convention: `<prefix>-<direction>`, ví dụ: 'player-down', 'npc-left', 'staff-up'.
+   * 
+   * Hàng 0 = DOWN (frame 0-3)
+   * Hàng 1 = LEFT (frame 4-7)
+   * Hàng 2 = RIGHT (frame 8-11)
+   * Hàng 3 = UP   (frame 12-15)
+   */
+  private registerCharacterAnimations() {
+    const defs: Array<{ prefix: string, key: string }> = [
+      { prefix: 'player', key: TEX.PLAYER },
+      { prefix: 'npc',    key: TEX.NPC },
+      { prefix: 'staff',  key: TEX.STAFF }
+    ]
+
+    const dirRows: Array<{ dir: string, start: number }> = [
+      { dir: 'down',  start: 0 },
+      { dir: 'left',  start: 4 },
+      { dir: 'right', start: 8 },
+      { dir: 'up',    start: 12 }
+    ]
+
+    for (const { prefix, key } of defs) {
+      for (const { dir, start } of dirRows) {
+        const animKey = `${prefix}-${dir}`
+        if (this.anims.exists(animKey)) continue // Idempotent — tránh re-register khi scene restart
+        this.anims.create({
+          key: animKey,
+          frames: this.anims.generateFrameNumbers(key, { start, end: start + 3 }),
+          frameRate: 8,
+          repeat: -1
+        })
+      }
+    }
+  }
+
+  /**
+   * Đăng ký các Frame Animations cho Player và NPC (Legacy)
    */
   private setupAnimations() {
     const anims = this.anims
-    if (!anims.exists('player-down')) {
-      anims.create({ key: 'player-down', frames: anims.generateFrameNumbers('player', { start: 0, end: 2 }), frameRate: 8, repeat: -1 })
-      anims.create({ key: 'player-left', frames: anims.generateFrameNumbers('player', { start: 3, end: 5 }), frameRate: 8, repeat: -1 })
-      anims.create({ key: 'player-right', frames: anims.generateFrameNumbers('player', { start: 6, end: 8 }), frameRate: 8, repeat: -1 })
-      anims.create({ key: 'player-up', frames: anims.generateFrameNumbers('player', { start: 9, end: 11 }), frameRate: 8, repeat: -1 })
-
-      anims.create({ key: 'npc-down', frames: anims.generateFrameNumbers('npc', { start: 0, end: 2 }), frameRate: 8, repeat: -1 })
-      anims.create({ key: 'npc-left', frames: anims.generateFrameNumbers('npc', { start: 3, end: 5 }), frameRate: 8, repeat: -1 })
-      anims.create({ key: 'npc-right', frames: anims.generateFrameNumbers('npc', { start: 6, end: 8 }), frameRate: 8, repeat: -1 })
-      anims.create({ key: 'npc-up', frames: anims.generateFrameNumbers('npc', { start: 9, end: 11 }), frameRate: 8, repeat: -1 })
+    if (!anims.exists('player-down-legacy')) {
+      // Giữ key cũ nếu cần, nhưng blueprint bảo dùng registerCharacterAnimations mới
     }
   }
 
@@ -438,6 +516,9 @@ export default class MainScene extends Phaser.Scene {
 
     // 10. Hiển thị gợi ý phím [E] khi gần cổng
     this.updateGateHints()
+
+    // 🆕 R2: Y-Sort cho Player mỗi frame
+    applyDynamicYSort(this.player)
   }
 
   /** Đồng bộ trạng thái isPlayerInTown dựa trên tọa độ thực tế */
@@ -600,13 +681,19 @@ export default class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Xử lý di chuyển vật lý của Player.
+   * Xử lý di chuyển vật lý của Player (2.5D).
+   * 
+   * Thay đổi so với phiên bản cũ:
+   * - Chọn animation 4 hướng theo trục vận tốc LỚN HƠN (R4).
+   * - Idle = dừng anim ở frame đầu tiên của hướng hiện tại (không phải stop trắng).
+   * - Y-sort được update ở cuối update() — không gọi ở đây.
    */
   private handlePlayerMovement() {
     this.player.setVelocity(0)
     const speed = 160
     let isMoving = false
 
+    // --- X axis ---
     if (this.cursors.left.isDown) {
       this.player.setVelocityX(-speed)
       isMoving = true
@@ -615,6 +702,7 @@ export default class MainScene extends Phaser.Scene {
       isMoving = true
     }
 
+    // --- Y axis ---
     if (this.cursors.up.isDown) {
       this.player.setVelocityY(-speed)
       isMoving = true
@@ -623,14 +711,24 @@ export default class MainScene extends Phaser.Scene {
       isMoving = true
     }
 
+    // Chuẩn hoá vector đường chéo để không đi nhanh gấp √2
     if (isMoving) {
       this.player.body!.velocity.normalize().scale(speed)
-      if (this.cursors.left.isDown) this.player.anims.play('player-left', true)
-      else if (this.cursors.right.isDown) this.player.anims.play('player-right', true)
-      else if (this.cursors.up.isDown) this.player.anims.play('player-up', true)
-      else if (this.cursors.down.isDown) this.player.anims.play('player-down', true)
+
+      // R4: Chọn hướng animation theo trục lớn hơn
+      const vx = this.player.body!.velocity.x
+      const vy = this.player.body!.velocity.y
+
+      if (Math.abs(vx) > Math.abs(vy)) {
+        this.player.anims.play(vx < 0 ? 'player-left' : 'player-right', true)
+      } else {
+        this.player.anims.play(vy < 0 ? 'player-up' : 'player-down', true)
+      }
     } else {
-      this.player.anims.stop()
+      // Idle — giữ nguyên hướng mặt, chỉ dừng cycle tại frame hiện tại
+      if (this.player.anims.isPlaying) {
+        this.player.anims.stop()
+      }
     }
   }
 

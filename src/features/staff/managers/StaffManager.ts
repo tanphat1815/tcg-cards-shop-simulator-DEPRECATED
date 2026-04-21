@@ -1,5 +1,7 @@
 import Phaser from 'phaser'
 import { DEPTH } from '../../environment/config'
+import { TEX } from '../../environment/assetKeys'
+import { applyDynamicYSort, applyFootCollider } from '../../environment/ySortUtils'
 import { useStaffStore } from '../store/staffStore'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import type { WorkerDuty } from '../types'
@@ -76,11 +78,19 @@ export class StaffManager {
       let worker = this.workers.get(w.instanceId)
       
       if (!worker) {
-        const doorPos = EnvironmentManager.START_X + 200
-        const sprite = this.scene.physics.add.sprite(doorPos, EnvironmentManager.START_Y + 500, 'npc')
-        sprite.setDepth(DEPTH.NPC).setTint(0xaaaaff)
+        const spawnLoc = this.environmentManager.idleStaffZone
+        const sprite = this.scene.physics.add.sprite(
+          spawnLoc.x,
+          spawnLoc.y,
+          TEX.STAFF,   // ← Đổi từ 'npc' sang TEX.STAFF (có uniform riêng)
+          0
+        )
+        sprite.setOrigin(0.5, 1)             // R1
+        applyFootCollider(sprite, 0.3)       // R3
+        sprite.setCollideWorldBounds(true)
+        sprite.setDepth(sprite.y)            // R2 initial
         
-        const statusText = this.scene.add.text(sprite.x, sprite.y - 35, '', {
+        const statusText = this.scene.add.text(sprite.x, sprite.y - 55, '', {
             fontSize: '10px',
             color: '#00ffff'
         }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
@@ -387,9 +397,22 @@ export class StaffManager {
     }
   }
 
+  /**
+   * Cập nhật diện mạo của worker mỗi frame.
+   * 
+   * ⚠️ CHÚ Ý SỐNG CÒN:
+   * - KHÔNG động đến logic subState / duty / workerData.
+   * - THÊM MỚI: applyDynamicYSort mỗi frame.
+   * - Animation dùng prefix 'staff-' (nếu staff_sheet giống layout npc thì vẫn có thể dùng 'npc-',
+   *   nhưng tách namespace để sau này artist phân biệt rõ).
+   */
   private updateVisuals(worker: WorkerNPC) {
-    worker.statusText.setPosition(worker.sprite.x, worker.sprite.y - 35)
-    
+    // R2: Y-SORT — BẮT BUỘC trước mọi thao tác khác
+    applyDynamicYSort(worker.sprite)
+
+    // Label vị trí — offset đúng chiều cao sprite 48px
+    worker.statusText.setPosition(worker.sprite.x, worker.sprite.y - 55)
+
     let label = ''
     if (worker.duty === 'CHECKOUT') {
       label = 'Checkout'
@@ -404,16 +427,17 @@ export class StaffManager {
     const vx = worker.sprite.body?.velocity.x || 0
     const vy = worker.sprite.body?.velocity.y || 0
 
+    // R4: Chọn anim theo trục lớn hơn
     if (Math.abs(vx) > Math.abs(vy)) {
-        if (vx < -10) anims.play('npc-left', true)
-        else if (vx > 10) anims.play('npc-right', true)
+      if (vx < -10)      anims.play('staff-left', true)
+      else if (vx > 10)  anims.play('staff-right', true)
     } else {
-        if (vy < -10) anims.play('npc-up', true)
-        else if (vy > 10) anims.play('npc-down', true)
+      if (vy < -10)      anims.play('staff-up', true)
+      else if (vy > 10)  anims.play('staff-down', true)
     }
-    
+
     if (Math.abs(vx) < 10 && Math.abs(vy) < 10) {
-        anims.stop()
+      if (anims.isPlaying) anims.stop()
     }
   }
 }

@@ -1,5 +1,6 @@
 import MainScene from '../../../game/MainScene'
 import { DEPTH } from '../config'
+import { TEX } from '../assetKeys'
 import { BASE_SHOP_WIDTH, BASE_SHOP_HEIGHT, getExpansionDimensions } from '../../stats/config'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 
@@ -40,6 +41,10 @@ export class EnvironmentManager {
   public idleStaffZone!: { x: number; y: number; width: number }
   
   private sidewalkGraphics!: Phaser.GameObjects.Graphics
+  private floorTileSprite!: Phaser.GameObjects.TileSprite
+  private wallTopSprite!: Phaser.GameObjects.TileSprite
+  private wallSideSprites: Phaser.GameObjects.TileSprite[] = []
+  private sidewalkTileSprite!: Phaser.GameObjects.TileSprite
   
   /** Group chứa tất cả tường để kiểm tra va chạm tập trung */
   public wallsGroup!: Phaser.Physics.Arcade.StaticGroup
@@ -253,37 +258,62 @@ export class EnvironmentManager {
       this.shopBounds = { x: startX, y: startY, w: shopW, h: shopH }
       this.doorLocation = { x: startX + shopW / 2, y: startY + shopH }
 
-      // Cập nhật Camera Bounds để người chơi không bơi ra khỏi bản đồ (Mở rộng cho Khu Gym)
+      // Cập nhật Camera Bounds
       this.scene.cameras.main.setBounds(0, 0, 5500, 3000)
 
-      // Vẽ Layer đường phố/nền tối (Mở rộng cho Khu Gym)
+      // 0. Street/Background
       this.outsideGraphics.clear()
       this.outsideGraphics.fillStyle(0x1a1a1a, 1) // Dark street
       this.outsideGraphics.fillRect(0, 0, 5500, 3000)
 
-      // Vẽ Layer sàn Shop (Slate floor)
-      this.floorGraphics.clear()
-      this.floorGraphics.fillStyle(0x2c3e50, 1) // Slate floor
-      this.floorGraphics.fillRect(startX, startY, shopW, shopH)
-
-      // Grid định hướng cho việc đặt đồ (40px x 40px)
-      this.floorGraphics.lineStyle(1, 0x34495e, 0.5)
-      for (let i = 0; i <= shopW; i += 40) {
-        this.floorGraphics.lineBetween(startX + i, startY, startX + i, startY + shopH)
-      }
-      for (let j = 0; j <= shopH; j += 40) {
-        this.floorGraphics.lineBetween(startX, startY + j, startX + shopW, startY + j)
+      // 1. FLOOR — dùng TileSprite để lặp texture tự động
+      if (!this.floorTileSprite) {
+        this.floorTileSprite = this.scene.add.tileSprite(startX, startY, shopW, shopH, TEX.FLOOR_TILE)
+          .setOrigin(0, 0)
+          .setDepth(DEPTH.FLOOR)
+      } else {
+        this.floorTileSprite.setPosition(startX, startY)
+        this.floorTileSprite.setSize(shopW, shopH)
       }
 
-      // Vẽ Layer Tường trắng bao quanh shop
-      this.wallGraphics.clear()
-      this.wallGraphics.lineStyle(6, 0xffffff, 0.8)
-      this.wallGraphics.strokeRect(startX, startY, shopW, shopH)
+      // 2. WALL TOP (North) — tường trên cùng có "mái" nhô lên che nhân vật
+      // Chiều cao visual của tường = 48px. Origin (0,1) để đáy tường nằm đúng y.
+      if (!this.wallTopSprite) {
+        this.wallTopSprite = this.scene.add.tileSprite(startX, startY, shopW, 48, TEX.WALL_TOP)
+          .setOrigin(0, 1)
+          .setDepth(startY) // R2: Y-sort theo đáy tường
+      } else {
+        this.wallTopSprite.setPosition(startX, startY)
+        this.wallTopSprite.setSize(shopW, 48)
+        this.wallTopSprite.setDepth(startY)
+      }
 
-      // Vẽ biểu tượng cửa (Dòng kẻ vàng)
-      this.wallGraphics.lineStyle(8, 0xf1c40f, 1)
+      // 3. WALL SIDES (trái, phải, dưới) — dùng wall_side
+      this.wallSideSprites.forEach(s => s.destroy())
+      this.wallSideSprites = []
+
+      const SIDE_T = 32 // chiều dày visual tường bên
+      // Left wall
+      this.wallSideSprites.push(
+        this.scene.add.tileSprite(startX - SIDE_T, startY, SIDE_T, shopH, TEX.WALL_SIDE)
+          .setOrigin(0, 0).setDepth(DEPTH.WALL)
+      )
+      // Right wall
+      this.wallSideSprites.push(
+        this.scene.add.tileSprite(startX + shopW, startY, SIDE_T, shopH, TEX.WALL_SIDE)
+          .setOrigin(0, 0).setDepth(DEPTH.WALL)
+      )
+      // Bottom walls (chừa cửa)
       const doorWidth = 80
-      this.wallGraphics.lineBetween(this.doorLocation.x - doorWidth/2, this.doorLocation.y, this.doorLocation.x + doorWidth/2, this.doorLocation.y)
+      const sideWallW = (shopW - doorWidth) / 2
+      this.wallSideSprites.push(
+        this.scene.add.tileSprite(startX, startY + shopH, sideWallW, SIDE_T, TEX.WALL_SIDE)
+          .setOrigin(0, 0).setDepth(DEPTH.WALL)
+      )
+      this.wallSideSprites.push(
+        this.scene.add.tileSprite(startX + shopW - sideWallW, startY + shopH, sideWallW, SIDE_T, TEX.WALL_SIDE)
+          .setOrigin(0, 0).setDepth(DEPTH.WALL)
+      )
 
       // XỬ LÝ PREVIEW MỞ RỘNG (BLUEPRINT/GLOW)
       if (this.scene.previewGraphics) {
@@ -294,11 +324,8 @@ export class EnvironmentManager {
           const nextH = BASE_SHOP_HEIGHT + nextDim.extraH
 
           if (store.settings.expansionPreviewStyle === 'BLUEPRINT') {
-            // Phong cách bản vẽ xanh cyan đứt đoạn
-            this.scene.previewGraphics.lineStyle(3, 0x00ffff, 1.0)
             this.drawDashedRect(startX, startY, nextW, nextH, 0x00ffff)
           } else {
-            // Phong cách ánh sáng Glow trắng
             for (let i = 1; i <= 3; i++) {
                this.scene.previewGraphics.lineStyle(2 * i, 0xffffff, 0.1)
                this.scene.previewGraphics.strokeRect(startX - i, startY - i, nextW + i*2, nextH + i*2)
@@ -390,17 +417,21 @@ export class EnvironmentManager {
     const door = this.doorLocation
     const shopW = this.shopBounds.w
 
-    this.sidewalkGraphics.clear()
-
-    // Dải vỉa hè ngang trước toàn bộ mặt tiền shop
     const sidewalkY = door.y + 40
     const sidewalkH = 90
-    const sidewalkX = this.shopBounds.x - 100 // Vỉa hè rộng hơn shop một chút
+    const sidewalkX = this.shopBounds.x - 100
     const sidewalkW = shopW + 200
 
-    // Màu gợi ý: 0x5a6478 (xám nhựa đường)
-    this.sidewalkGraphics.fillStyle(0x5a6478, 1)
-    this.sidewalkGraphics.fillRect(sidewalkX, sidewalkY, sidewalkW, sidewalkH)
+    if (!this.sidewalkTileSprite) {
+      this.sidewalkTileSprite = this.scene.add.tileSprite(
+        sidewalkX, sidewalkY, sidewalkW, sidewalkH, TEX.SIDEWALK_TILE
+      ).setOrigin(0, 0).setDepth(DEPTH.FLOOR + 0.1)
+    } else {
+      this.sidewalkTileSprite.setPosition(sidewalkX, sidewalkY)
+      this.sidewalkTileSprite.setSize(sidewalkW, sidewalkH)
+    }
+
+    this.sidewalkGraphics.clear()
 
     // Viền kẻ phân làn (tuỳ chọn, tăng visual)
     this.sidewalkGraphics.lineStyle(2, 0xffffff, 0.15)

@@ -1,5 +1,7 @@
 import Phaser from 'phaser'
 import { DEPTH } from '../../environment/config'
+import { TEX } from '../../environment/assetKeys'
+import { applyFootCollider, applyStaticYSort } from '../../environment/ySortUtils'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import type { ShelfData, PlayTableData, CashierData } from '../types'
 
@@ -52,76 +54,95 @@ export class FurnitureManager {
     })
   }
 
+  /**
+   * Hiển thị một shelf (Selling hoặc Storage) ở không gian 2.5D.
+   * 
+   * ⚠️ GIỮ NGUYÊN:
+   * - isDouble logic (shelf_double → tint + scale).
+   * - shelfTexts map để update info text.
+   * - shelf.role split selling/storage.
+   */
   public displayShelf(shelf: ShelfData) {
-    const isDouble = shelf.furnitureId === 'shelf_double'
+    const isDouble  = shelf.furnitureId === 'shelf_double'
     const isStorage = shelf.role === 'storage'
-    const textureKey = isStorage ? 'warehouse_shelf' : 'shelf'
-    const sprite = this.shelvesGroup.create(shelf.x, shelf.y, textureKey)
-    
+    const textureKey = isStorage ? TEX.SHELF_STORAGE : TEX.SHELF_SELLING
+
+    // Tạo sprite trong static group
+    const sprite = this.shelvesGroup.create(shelf.x, shelf.y, textureKey) as Phaser.Physics.Arcade.Sprite
     sprite.setData('id', shelf.id)
     sprite.setData('type', 'shelf')
-    sprite.setDepth(DEPTH.FURNITURE)
-    
+
+    // R1: Foot Anchor — TRƯỚC setScale, TRƯỚC refreshBody
+    sprite.setOrigin(0.5, 1)
+
+    // Áp dụng scale đặc biệt cho các biến thể (GIỮ NGUYÊN LOGIC CŨ)
     if (isDouble) {
       sprite.setTint(0x8B4513)
       sprite.setScale(1.2, 1.0)
     } else if (isStorage && shelf.furnitureId === 'warehouse_shelf') {
-      // Kệ kho công nghiệp: Giữ màu xám, scale to hơn 1 chút nếu cần
       sprite.setScale(1.1, 1.1)
     }
 
-    const text = this.scene.add.text(shelf.x, shelf.y - 60, this.getShelfInfo(shelf), {
+    // R3: Foot Collider — chỉ 30% đáy là physical body
+    applyFootCollider(sprite, 0.3)
+
+    // Sau khi sửa origin + scale + body, BẮT BUỘC refreshBody để StaticBody đồng bộ.
+    sprite.refreshBody()
+
+    // R2: Static Y-Sort — 1 lần duy nhất khi spawn.
+    applyStaticYSort(sprite)
+
+    // Label thông tin shelf — đặt trên đỉnh sprite (sprite cao 96px, origin đáy → đỉnh = y - 96)
+    const text = this.scene.add.text(shelf.x, shelf.y - 100, this.getShelfInfo(shelf), {
       fontSize: '11px',
       fontStyle: 'bold',
       color: isDouble ? '#ffeb3b' : '#000',
       backgroundColor: isDouble ? '#212121' : '#fff',
       padding: { x: 4, y: 2 }
     }).setOrigin(0.5).setDepth(DEPTH.UI)
-    
+
     this.shelfTexts[shelf.id] = text
   }
 
   public displayTable(table: PlayTableData) {
     const rotation = table.rotation || 0
     const isVertical = rotation === 90
-    const w = isVertical ? 40 : 80
-    const h = isVertical ? 80 : 40
-
-    const sprite = this.tablesGroup.create(table.x, table.y, 'cashier') 
+    
+    // R1: Spawn sprite 2.5D
+    const sprite = this.tablesGroup.create(table.x, table.y, TEX.PLAY_TABLE) as Phaser.Physics.Arcade.Sprite
     sprite.setData('id', table.id)
     sprite.setData('type', 'table')
-    sprite.setDepth(DEPTH.TABLE).setSize(w, h).setVisible(false)
+    
+    // Foot Anchor & Physics
+    sprite.setOrigin(0.5, 1)
+    if (isVertical) sprite.setAngle(90) // Xoay 90 độ nếu cần
+    
+    applyFootCollider(sprite, 0.7) // Bàn chơi gần như phẳng
+    sprite.refreshBody()
+    applyStaticYSort(sprite)
 
-    const container = this.scene.add.container(table.x, table.y)
-    const rect = this.scene.add.rectangle(0, 0, w, h, 0x8B4513).setStrokeStyle(2, 0x5D2906)
-    container.add(rect)
-
-    const chairColor = 0xA0522D
-    if (isVertical) {
-      container.add(this.scene.add.rectangle(0, -h/2 - 10, 24, 20, chairColor).setStrokeStyle(1, 0x5D2906))
-      container.add(this.scene.add.rectangle(0, h/2 + 10, 24, 20, chairColor).setStrokeStyle(1, 0x5D2906))
-    } else {
-      container.add(this.scene.add.rectangle(-w/2 - 10, 0, 20, 24, chairColor).setStrokeStyle(1, 0x5D2906))
-      container.add(this.scene.add.rectangle(w/2 + 10, 0, 20, 24, chairColor).setStrokeStyle(1, 0x5D2906))
-    }
-
-    const label = this.scene.add.text(0, -h/2 - 25, this.getTableInfo(table), {
+    // Label thông tin bàn — đặt trên đỉnh sprite
+    const label = this.scene.add.text(table.x, table.y - 75, this.getTableInfo(table), {
       fontSize: '10px',
       color: '#fff',
       backgroundColor: 'rgba(0,0,0,0.5)',
       padding: { x: 2, y: 1 }
     }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
-    container.add(label)
     
-    container.setDepth(DEPTH.FURNITURE)
-    this.tableVisuals[table.id] = { rect: container as any, label }
+    this.tableVisuals[table.id] = { rect: sprite as any, label }
   }
 
   public displayCashier(cashier: CashierData) {
-    const sprite = this.cashierGroup.create(cashier.x, cashier.y, 'cashier')
+    const sprite = this.cashierGroup.create(cashier.x, cashier.y, TEX.CASHIER_DESK) as Phaser.Physics.Arcade.Sprite
     sprite.setData('id', cashier.id)
     sprite.setData('type', 'cashier')
-    sprite.setDepth(DEPTH.CASHIER)
+    
+    sprite.setOrigin(0.5, 1)
+    applyFootCollider(sprite, 0.6) // Quầy thu ngân dày
+    sprite.refreshBody()
+    applyStaticYSort(sprite)
+
+    // Label indicator (nếu cần update sau này, hiện tại chỉ vẽ sprite)
   }
 
   public addFurnitureToScene(data: any) {

@@ -3,6 +3,8 @@ import { EnvironmentManager } from '../../environment/managers/EnvironmentManage
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import type { NPCState, Customer } from '../types'
 import { DEPTH } from '../../environment/config'
+import { TEX } from '../../environment/assetKeys'
+import { applyDynamicYSort, applyFootCollider } from '../../environment/ySortUtils'
 
 /**
  * NPCManager - Hệ thống điều phối AI cho toàn bộ khách hàng trong Game.
@@ -72,6 +74,13 @@ export class NPCManager {
 
   /**
    * Tạo một NPC mới tại cửa Shop với các ý định (Intent) ngẫu nhiên.
+   * 
+   * Phiên bản 2.5D:
+   * - Dùng TEX.NPC (spritesheet 32x48).
+   * - setOrigin(0.5, 1) → tọa độ (x, y) = tọa độ chân.
+   * - Foot collider 30%.
+   * 
+   * ⚠️ KHÔNG XOÁ: intent logic, instanceId, statusText, customers.push, timer.
    */
   public spawnNPC() {
     const gameStore = useGameStore()
@@ -81,8 +90,18 @@ export class NPCManager {
     if (this.customers.length >= 15) return
 
     const doorLocation = this.environmentManager.getDoorLocation()
-    const npcSprite = this.scene.physics.add.sprite(doorLocation.x, doorLocation.y + 50, 'npc')
-    npcSprite.setCollideWorldBounds(true).setDepth(DEPTH.NPC)
+
+    // --- 2.5D SPRITE SETUP ---
+    const npcSprite = this.scene.physics.add.sprite(
+      doorLocation.x,
+      doorLocation.y + 50,
+      TEX.NPC,
+      0 // Frame đầu tiên (down-idle)
+    )
+    npcSprite.setOrigin(0.5, 1)              // R1 — foot anchor
+    applyFootCollider(npcSprite, 0.3)        // R3 — chỉ 30% đáy là collider
+    npcSprite.setCollideWorldBounds(true)
+    npcSprite.setDepth(npcSprite.y)          // R2 — ban đầu y-sort (sẽ update mỗi frame)
 
     // Quyết định mục đích: 30% khách đến để đánh bài, 70% đến để mua hàng
     const isPlayer = Math.random() < 0.3
@@ -105,7 +124,7 @@ export class NPCManager {
     }
 
     // Tạo Text hiển thị trạng thái trên đầu NPC (Overhead Label)
-    newCust.statusText = this.scene.add.text(npcSprite.x, npcSprite.y - 35, '...', {
+    newCust.statusText = this.scene.add.text(npcSprite.x, npcSprite.y - 55, '...', {
       fontSize: '10px',
       color: '#ffffff',
       backgroundColor: 'rgba(0,0,0,0.6)',
@@ -170,10 +189,18 @@ export class NPCManager {
   }
 
   /**
-   * Xử lý hướng Animation của Sprite dựa trên Vector vận tốc
+   * Xử lý hướng Animation + Y-Sort cho NPC mỗi frame.
+   * 
+   * ⚠️ CHÚ Ý:
+   * - Giữ nguyên logic "trục lớn hơn" để chọn hướng (R4).
+   * - THÊM MỚI: applyDynamicYSort mỗi frame để NPC đúng order 2.5D.
    */
   private updateNPCAnimation(customer: Customer) {
     const sprite = customer.sprite
+
+    // Y-SORT (R2) — BẮT BUỘC mỗi frame, TRƯỚC khi chọn anim
+    applyDynamicYSort(sprite)
+
     if (sprite.body && sprite.body.velocity.lengthSq() > 0) {
       const vx = sprite.body.velocity.x
       const vy = sprite.body.velocity.y
@@ -183,7 +210,7 @@ export class NPCManager {
         sprite.anims.play(vy < 0 ? 'npc-up' : 'npc-down', true)
       }
     } else {
-      sprite.anims.stop()
+      if (sprite.anims.isPlaying) sprite.anims.stop()
     }
   }
 
@@ -192,7 +219,7 @@ export class NPCManager {
    */
   private updateStatusText(customer: Customer, time: number) {
     if (!customer.statusText) return
-    customer.statusText.setPosition(customer.sprite.x, customer.sprite.y - 35)
+    customer.statusText.setPosition(customer.sprite.x, customer.sprite.y - 55)
 
     let label = '...'
     switch (customer.state) {

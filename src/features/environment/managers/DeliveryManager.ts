@@ -2,13 +2,15 @@ import Phaser from 'phaser'
 import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import { EnvironmentManager } from './EnvironmentManager'
 import { DEPTH } from '../config'
+import { TEX } from '../assetKeys'
+import { applyDynamicYSort, applyFootCollider } from '../ySortUtils'
 import { useFurnitureStore } from '../../furniture/store/furnitureStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { useUIStore } from '../../shop-ui/store/uiStore'
 
 interface LiveBox {
   id: string
-  sprite: Phaser.GameObjects.Rectangle
+  sprite: Phaser.Physics.Arcade.Sprite   // ← ĐỔI từ Rectangle sang Sprite
   label: Phaser.GameObjects.Text
   qtyLabel: Phaser.GameObjects.Text
   itemId: string
@@ -86,12 +88,19 @@ export class DeliveryManager {
     this.checkCarriedBoxConsumed()
     this.syncToStore()
     
-    this.boxes.forEach(box => {
-      if (!box.isBeingCarried) {
-        box.label.setPosition(box.sprite.x, box.sprite.y - 22)
-        box.qtyLabel.setPosition(box.sprite.x, box.sprite.y + 22)
+    // 🆕 R2: Y-SORT cho mọi box động
+    for (const box of this.boxes) {
+      if (box.isBeingCarried) {
+        // Box bám theo carrier và LUÔN vẽ trên carrier + 1 (vì depth carrier = carrier.y)
+        box.sprite.setDepth(box.sprite.y + 1)
+      } else {
+        applyDynamicYSort(box.sprite)
       }
-    })
+
+      // Label đi theo sprite
+      if (box.label)    box.label.setPosition(box.sprite.x, box.sprite.y - 40)
+      if (box.qtyLabel) box.qtyLabel.setPosition(box.sprite.x, box.sprite.y - 25)
+    }
   }
 
   /**
@@ -124,33 +133,31 @@ export class DeliveryManager {
     // Default coordinates if not provided
     const halfWidth = dz.width / 2
     const spawnX = x ?? (dz.x + Phaser.Math.Between(-halfWidth * 0.7, halfWidth * 0.7))
-    const spawnY = y ?? (dz.y - 80)
+    const spawnY = y ?? (dz.y - 200) // Rơi từ trên cao xuống
 
-    const isFurniture = item.type === 'furniture'
-    const boxColor = isFurniture ? 0x3b82f6 : 0x8B4513 // Blue for furniture, Brown for goods
-    const strokeColor = isFurniture ? 0x1d4ed8 : 0x5D2906
-
-    const boxRect = this.scene.add.rectangle(spawnX, spawnY, 48, 36, boxColor) as any
-    boxRect.setStrokeStyle(2, strokeColor)
-    boxRect.setDepth(DEPTH.FURNITURE)
+    // ==================== SPAWN BOX (2.5D) ====================
+    const boxSprite = this.scene.physics.add.sprite(spawnX, spawnY, TEX.BOX_ITEM)
+    boxSprite.setOrigin(0.5, 1)                // R1
+    applyFootCollider(boxSprite, 1.0)          // Box vuông → collider toàn bộ
+    boxSprite.setCollideWorldBounds(true)
+    boxSprite.setBounce(0.3)
+    boxSprite.setDepth(boxSprite.y)            // R2 initial
     
-    this.scene.physics.add.existing(boxRect)
-    this.boxGroup.add(boxRect)
+    // Thêm vào physics group
+    this.boxGroup.add(boxSprite)
     
-    const body = boxRect.body as Phaser.Physics.Arcade.Body
+    const body = boxSprite.body as Phaser.Physics.Arcade.Body
     body.setGravityY(500) // Tăng trọng lực để rớt thật hơn
-    body.setBounce(0.3)
     body.setVelocityY(50) // Rớt xuống
-    body.setCollideWorldBounds(true)
 
-    const label = this.scene.add.text(spawnX, spawnY - 22, item.name.substring(0, 20), {
+    const label = this.scene.add.text(spawnX, spawnY - 40, item.name.substring(0, 20), {
       fontSize: '9px',
       color: '#ffffff',
       backgroundColor: 'rgba(0,0,0,0.7)',
       padding: { x: 3, y: 2 }
     }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
 
-    const qtyLabel = this.scene.add.text(spawnX, spawnY + 22, `×${item.quantity}`, {
+    const qtyLabel = this.scene.add.text(spawnX, spawnY - 25, `×${item.quantity}`, {
       fontSize: '11px',
       color: '#fbbf24',
       fontStyle: 'bold',
@@ -159,7 +166,7 @@ export class DeliveryManager {
     const id = `box_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
     this.boxes.push({
       id,
-      sprite: boxRect,
+      sprite: boxSprite,
       label,
       qtyLabel,
       itemId: item.itemId,
@@ -247,9 +254,9 @@ export class DeliveryManager {
       imageUrl: '',
     })
 
-    nearest.sprite.setFillStyle(0xffdd77)
-    const originalColor = nearest.type === 'furniture' ? 0x3b82f6 : 0x8B4513
-    this.scene.time.delayedCall(200, () => nearest.sprite.setFillStyle(originalColor))
+    // Hiệu ứng Visual khi nhặt (setTint thay vì fillStyle)
+    nearest.sprite.setTint(0xffdd77)
+    this.scene.time.delayedCall(200, () => nearest.sprite.clearTint())
   }
 
   private updateCarryPosition(playerX: number, playerY: number) {
@@ -261,9 +268,7 @@ export class DeliveryManager {
     if (idx === -1) return
     
     const box = this.boxes[idx]
-    box.sprite.setPosition(playerX, playerY - 50)
-    box.label.setPosition(playerX, playerY - 72)
-    box.qtyLabel.setPosition(playerX, playerY - 28)
+    box.sprite.setPosition(playerX, playerY - 35) // Offset khi cầm
   }
 
   private dropCarried() {
@@ -332,9 +337,7 @@ export class DeliveryManager {
     const box = this.boxes.find(b => b.id === boxId)
     if (!box || box.carriedBy !== 'staff') return
     
-    box.sprite.setPosition(x, y - 40) // Offset khi cầm
-    box.label.setPosition(x, y - 62)
-    box.qtyLabel.setPosition(x, y - 18)
+    box.sprite.setPosition(x, y - 10) // Offset sát người
   }
 
   handleShelfInteraction(shelfId: string): boolean {
