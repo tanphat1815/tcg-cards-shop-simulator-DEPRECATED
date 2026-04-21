@@ -10,6 +10,8 @@ export interface ShelfTier {
    * Nếu null → dùng marketPrice mặc định.
    */
   customPriceMap?: Record<string, number>;
+  isSlabMap?: Record<string, boolean>;
+  slabs?: Record<string, any>; // Store GradedCard objects here
 }
 
 export interface ShelfData {

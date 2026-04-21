@@ -4,6 +4,7 @@ import { useStatsStore } from '../../stats/store/statsStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { useStaffStore } from '../../staff/store/staffStore'
 import { useDeliveryStore } from '../../inventory/store/deliveryStore'
+import { useGradingStore } from '../../grading/store/gradingStore'
 import type { ShelfData, PlayTableData, CashierData, ShelfTier, ShelfRole } from '../types'
 
 /**
@@ -320,10 +321,60 @@ export const useFurnitureStore = defineStore('furniture', {
     },
 
     /**
+     * Đặt 1 slab (Graded Card) lên display_case.
+     */
+    placeSlabOnDisplayCase(
+      shelfId: string,
+      tierIndex: number,
+      slotIndex: number,
+      slabId: string,
+      customPrice: number
+    ): boolean {
+      const gradingStore = useGradingStore()
+      const shelf = this.placedShelves[shelfId]
+      if (!shelf || shelf.role !== 'display_case') return false
+
+      const slabIndex = gradingStore.gradedBinder.findIndex(s => s.slabId === slabId)
+      if (slabIndex === -1) return false
+      
+      const slab = gradingStore.gradedBinder[slabIndex]
+
+      const tier = shelf.tiers[tierIndex]
+      if (slotIndex >= tier.maxSlots || tier.slots[slotIndex] != null) {
+        const config = FURNITURE_ITEMS[shelf.furnitureId]
+        tier.maxSlots = config.slotsPerTier || 3
+        if (tier.slots.length === 0) tier.slots = Array(tier.maxSlots).fill(null)
+        if (slotIndex >= tier.maxSlots || tier.slots[slotIndex] != null) return false
+      }
+
+      if (!tier.customPriceMap) tier.customPriceMap = {}
+      if (!tier.isSlabMap) tier.isSlabMap = {} 
+      if (!tier.slabs) tier.slabs = {}
+
+      tier.slots[slotIndex] = slabId
+      tier.itemId = slab.cardId 
+      tier.customPriceMap[slabId] = customPrice
+      tier.isSlabMap[slabId] = true
+      tier.slabs[slabId] = { ...slab } // Đã clone để an toàn
+
+      // Trừ khỏi graded binder
+      gradingStore.gradedBinder.splice(slabIndex, 1)
+      return true
+    },
+
+    /**
      * NPC vãng lai xem 1 card trên display_case để cân nhắc mua.
      * Trả về thông tin card nhưng KHÔNG xóa khỏi tủ.
      */
-    npcPeekFromDisplayCase(shelfId: string): { cardId: string; price: number; tierIdx: number; slotIdx: number } | null {
+    npcPeekFromDisplayCase(shelfId: string): { 
+      cardId: string; 
+      price: number; 
+      tierIdx: number; 
+      slotIdx: number;
+      isSlab: boolean;
+      baseCardId: string;
+      multiplier: number;
+    } | null {
       const shelf = this.placedShelves[shelfId]
       if (!shelf || shelf.role !== 'display_case') return null
 
@@ -338,8 +389,13 @@ export const useFurnitureStore = defineStore('furniture', {
       const picked = occupied[Math.floor(Math.random() * occupied.length)]
       const tier = shelf.tiers[picked.tierIdx]
       const price = tier.customPriceMap?.[picked.cardId] ?? 0
+      
+      const isSlab = tier.isSlabMap?.[picked.cardId] ?? false
+      const slab = isSlab ? tier.slabs?.[picked.cardId] : null
+      const baseCardId = isSlab ? (slab?.cardId ?? picked.cardId) : picked.cardId
+      const multiplier = isSlab ? (slab?.priceMultiplier ?? 1) : 1
 
-      return { price, ...picked }
+      return { price, isSlab, baseCardId, multiplier, ...picked }
     },
 
     /**

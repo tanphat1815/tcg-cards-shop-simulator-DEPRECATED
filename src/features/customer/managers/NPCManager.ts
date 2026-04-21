@@ -561,10 +561,14 @@ export class NPCManager {
           // NPC tìm card muốn mua trong tủ (chỉ peek thử giá)
           const result = store.npcPeekFromDisplayCase(shelf.id)
           if (result) {
-            const { cardId, price, tierIdx, slotIdx } = result
-            const card = apiStore.flatCardMap[cardId]
+            const { cardId, price, tierIdx, slotIdx, isSlab, baseCardId, multiplier } = result
+            const card = apiStore.flatCardMap[baseCardId] // Dùng baseCardId cho slabs
+            if (!card) {
+                customer.state = 'WANDER'
+                return
+            }
             const market = getRawPrice(card)
-            const acceptableMax = market * 1.5
+            const acceptableMax = market * multiplier * 1.5 // Áp dụng multiplier cho slabs
 
             if (price <= acceptableMax) {
               // Chấp nhận mua -> commit hành động thực tế
@@ -573,7 +577,8 @@ export class NPCManager {
               customer.targetPrice = price
               
               // Popup
-              const popup = this.scene.add.text(customer.sprite.x, customer.sprite.y - 40, `+1 Card 🃏 ($${price})`, { fontSize: '12px', color: '#f1c40f', fontStyle: 'bold' }).setOrigin(0.5)
+              const popupLabel = isSlab ? `+1 Slab 🏆 ($${price})` : `+1 Card 🃏 ($${price})`
+              const popup = this.scene.add.text(customer.sprite.x, customer.sprite.y - 40, popupLabel, { fontSize: '12px', color: '#f1c40f', fontStyle: 'bold' }).setOrigin(0.5)
               this.scene.tweens.add({ targets: popup, y: popup.y - 30, alpha: 0, duration: 1500, onComplete: () => popup.destroy() })
 
               // Đi thanh toán

@@ -19,6 +19,7 @@ export const TEX = {
 
   // ----- Delivery -----
   BOX_ITEM: 'box_item',
+  PACKAGE_BOX: 'package_box',
 
   // ----- Environment -----
   FLOOR_TILE: 'floor_tile',      // 32x32 seamless

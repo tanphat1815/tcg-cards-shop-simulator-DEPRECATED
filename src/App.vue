@@ -19,6 +19,9 @@ import SetPriceModal from './features/inventory/components/SetPriceModal.vue'
 import HoldingHandHUD from './features/inventory/components/HoldingHandHUD.vue'
 import TradeInModal from './features/inventory/components/TradeInModal.vue'
 import { useGameStore } from './features/shop-ui/store/gameStore'
+import GradingServiceApp from './features/grading/components/GradingServiceApp.vue'
+import GradingReveal from './features/grading/components/GradingReveal.vue'
+import { useGradingStore } from './features/grading/store/gradingStore'
 import { useStatsStore } from './features/stats/store/statsStore'
 import { useInventoryStore } from './features/inventory/store/inventoryStore'
 import { useFurnitureStore } from './features/furniture/store/furnitureStore'
@@ -35,6 +38,7 @@ const customerStore = useCustomerStore()
 const deliveryStore = useDeliveryStore()
 const playerHandStore = usePlayerHandStore()
 const tradeInStore = useTradeInStore()
+const gradingStore = useGradingStore()
 
 onMounted(() => {
   store.loadSave()
@@ -53,6 +57,7 @@ onMounted(() => {
   deliveryStore.$subscribe(saveCallback, { deep: true })
   playerHandStore.$subscribe(saveCallback, { deep: true })
   tradeInStore.$subscribe(saveCallback, { deep: true })
+  gradingStore.$subscribe(saveCallback, { deep: true })
 })
 </script>
 
@@ -76,5 +81,7 @@ onMounted(() => {
     <SetPriceModal />
     <HoldingHandHUD />
     <TradeInModal />
+    <GradingServiceApp :is-open="gradingStore.showGradingApp" @close="gradingStore.setShowGradingApp(false)" />
+    <GradingReveal />
   </div>
 </template>

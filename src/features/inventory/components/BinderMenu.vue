@@ -2,59 +2,152 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import { useInventoryStore } from '../store/inventoryStore'
+import { useGradingStore } from '../../grading/store/gradingStore'
 import { useApiStore } from '../store/apiStore'
 import { useCardDetailStore } from '../store/cardDetailStore'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
 import TcgCard from '../../shared/components/TcgCard.vue'
+import SlabDisplay from '../../shared/components/SlabDisplay.vue'
+import { getRawPrice } from '../../shared/utils/currency'
 
 const gameStore = useGameStore()
 const inventoryStore = useInventoryStore()
+const gradingStore = useGradingStore()
 const apiStore = useApiStore()
 const detailStore = useCardDetailStore()
 
-const binderItems = computed(() => {
-  return Object.keys(inventoryStore.personalBinder).map(cardId => {
-    return {
-      id: cardId,
-      card: apiStore.flatCardMap[cardId] || null,
-      quantity: inventoryStore.personalBinder[cardId]
+type TabKey = 'standard' | 'graded'
+const activeTab = ref<TabKey>('standard')
+
+// ── Filter state ──────────────────────────────────
+interface BinderFilters {
+  energyType: string     // 'All' | 'Fire' | 'Water' | ...
+  rarity: string         // 'All' | 'Common' | 'Rare' | ...
+  cardType: string       // 'All' | 'Holo' | 'VMAX' | 'VSTAR' | 'EX' | ...
+  minGrade: number       // 0 = no filter, 1..10 = filter >= này (chỉ cho Graded tab)
+}
+
+const filters = ref<BinderFilters>({
+  energyType: 'All',
+  rarity: 'All',
+  cardType: 'All',
+  minGrade: 0,
+})
+
+// Options cho dropdown
+const ENERGY_TYPES = ['All', 'Fire', 'Water', 'Grass', 'Lightning', 'Psychic',
+                       'Fighting', 'Darkness', 'Metal', 'Dragon', 'Fairy', 'Colorless']
+const RARITIES = ['All', 'Common', 'Uncommon', 'Rare', 'Rare Holo', 'Ultra Rare',
+                   'Secret Rare', 'Hyper Rare']
+const CARD_TYPES = ['All', 'Normal', 'Holo', 'VMAX', 'VSTAR', 'EX', 'V', 'Full Art']
+
+/**
+ * Map raw card + filters → pass/fail.
+ */
+function matchesFilters(card: any, filters: BinderFilters, grade?: number): boolean {
+  if (!card) return false
+
+  // Energy Type filter
+  if (filters.energyType !== 'All') {
+    const types: string[] = card.types ?? []
+    if (!types.includes(filters.energyType)) return false
+  }
+
+  // Rarity filter
+  if (filters.rarity !== 'All') {
+    const cardRarity = (card.rarity ?? 'Common').toLowerCase()
+    const filterRarity = filters.rarity.toLowerCase()
+    if (!cardRarity.includes(filterRarity)) return false
+  }
+
+  // Card Type filter
+  if (filters.cardType !== 'All') {
+    const rarityStr = (card.rarity ?? '').toUpperCase()
+    switch (filters.cardType) {
+      case 'VMAX':     if (!rarityStr.includes('VMAX')) return false; break
+      case 'VSTAR':    if (!rarityStr.includes('VSTAR')) return false; break
+      case 'EX':       if (!rarityStr.includes('EX') || rarityStr.includes('VMAX')) return false; break
+      case 'V':
+        if (!rarityStr.match(/\bV\b/) || rarityStr.includes('VMAX') || rarityStr.includes('VSTAR')) return false
+        break
+      case 'Holo':     if (!rarityStr.includes('HOLO')) return false; break
+      case 'Full Art': if (!rarityStr.includes('FULL ART')) return false; break
+      case 'Normal':
+        if (rarityStr.match(/HOLO|VMAX|VSTAR|EX|FULL ART|ULTRA|SECRET/)) return false
+        break
     }
-  })
-})
+  }
 
-// ─── Pagination Logic ──────────────────────────────────────────────────────
-const CARDS_PER_PAGE = 6 // Per page (Left or Right)
-const CARDS_PER_VIEW = CARDS_PER_PAGE * 2 // 12 cards total in one "open book" view
-const currentPage = ref(0) // View index
+  // Grade filter
+  if (grade !== undefined && filters.minGrade > 0) {
+    if (grade < filters.minGrade) return false
+  }
 
-const totalViews = computed(() => Math.ceil(binderItems.value.length / CARDS_PER_VIEW) || 1)
-
-const leftPageCards = computed(() => {
-  const start = currentPage.value * CARDS_PER_VIEW
-  return binderItems.value.slice(start, start + CARDS_PER_PAGE)
-})
-
-const rightPageCards = computed(() => {
-  const start = currentPage.value * CARDS_PER_VIEW + CARDS_PER_PAGE
-  return binderItems.value.slice(start, start + CARDS_PER_PAGE)
-})
-
-const nextPage = () => {
-  if (currentPage.value < totalViews.value - 1) currentPage.value++
+  return true
 }
 
-const prevPage = () => {
-  if (currentPage.value > 0) currentPage.value--
-}
+// ── Standard Binder ────────────────────────────
+const filteredStandardCards = computed(() => {
+  return Object.keys(inventoryStore.personalBinder).map(id => ({
+    id,
+    card: apiStore.flatCardMap[id],
+    qty: inventoryStore.personalBinder[id],
+  })).filter(entry =>
+    entry.card && matchesFilters(entry.card, filters.value)
+  )
+})
 
-import { getRawPrice } from '../../shared/utils/currency'
+// ── Graded Binder ─────────────────────────────────────
+const filteredGradedSlabs = computed(() => {
+  return gradingStore.gradedBinder.map(slab => ({
+    slab,
+    card: apiStore.flatCardMap[slab.cardId],
+  })).filter(entry =>
+    entry.card && matchesFilters(entry.card, filters.value, entry.slab.grade)
+  ).sort((a, b) => b.slab.grade - a.slab.grade)  // Sort grade desc
+})
 
-// ─── Value Calculation ─────────────────────────────────────────────────────
+// ── Pagination Logic (Apply on filtered results) ───────────────────────────
+const CARDS_PER_PAGE = 12
+const currentPage = ref(0)
+
+const activeItems = computed(() => {
+  return activeTab.value === 'standard' ? filteredStandardCards.value : filteredGradedSlabs.value
+})
+
+const totalPages = computed(() => Math.ceil(activeItems.value.length / CARDS_PER_PAGE) || 1)
+
+const paginatedStandardCards = computed(() => {
+  if (activeTab.value !== 'standard') return []
+  const start = currentPage.value * CARDS_PER_PAGE
+  return filteredStandardCards.value.slice(start, start + CARDS_PER_PAGE)
+})
+
+const paginatedGradedSlabs = computed(() => {
+  if (activeTab.value !== 'graded') return []
+  const start = currentPage.value * CARDS_PER_PAGE
+  return filteredGradedSlabs.value.slice(start, start + CARDS_PER_PAGE)
+})
+
+const paginatedItemsLength = computed(() => {
+  return activeTab.value === 'standard' ? paginatedStandardCards.value.length : paginatedGradedSlabs.value.length
+})
+
+const nextPage = () => { if (currentPage.value < totalPages.value - 1) currentPage.value++ }
+const prevPage = () => { if (currentPage.value > 0) currentPage.value-- }
+
+// Reset page when tab/filters change
+watch([activeTab, filters], () => { currentPage.value = 0 }, { deep: true })
+
+// ── Stats ──────────────────────────────────────────────────────────────────
 const totalEstimatedValue = computed(() => {
   let total = 0
-  binderItems.value.forEach(item => {
-    if (!item.card) return
-    total += getRawPrice(item.card) * item.quantity
+  filteredStandardCards.value.forEach(item => {
+    total += getRawPrice(item.card) * item.qty
+  })
+  filteredGradedSlabs.value.forEach(item => {
+    const base = getRawPrice(item.card)
+    total += base * item.slab.priceMultiplier
   })
   return total.toFixed(2)
 })
@@ -62,11 +155,11 @@ const totalEstimatedValue = computed(() => {
 // Tự động load những card còn thiếu thông tin
 const loadMissingCards = () => {
   if (!gameStore.showBinderMenu) return
-  
-  binderItems.value.forEach(item => {
-    if (!item.card) {
-      apiStore.ensureCardInCache(item.id)
-    }
+  filteredStandardCards.value.forEach(item => {
+    if (!item.card) apiStore.ensureCardInCache(item.id)
+  })
+  filteredGradedSlabs.value.forEach(item => {
+    if (!item.card) apiStore.ensureCardInCache(item.slab.cardId)
   })
 }
 
@@ -81,128 +174,128 @@ onMounted(() => {
 
 <template>
   <div v-if="gameStore.showBinderMenu" class="binder-overlay">
-    <!-- Close Button Top Right -->
+    <!-- Close button -->
     <div class="absolute top-6 right-6 z-[200]">
-      <EnhancedButton
-        variant="icon"
-        size="lg"
-        :icon="{ name: 'close' }"
-        defaultText=""
-        @click="gameStore.setShowBinderMenu(false)"
-        class="close-btn"
-      />
+      <EnhancedButton variant="icon" :icon="{ name: 'close' }" @click="gameStore.setShowBinderMenu(false)" />
     </div>
 
-    <!-- MAIN BINDER CONTAINER -->
     <div class="binder-container">
-      <!-- Binder Cover/Body -->
-      <div class="binder-body">
+      <!-- Header with Tabs -->
+      <header class="binder-header">
+        <div class="tabs">
+          <button
+            class="tab-btn" :class="{ active: activeTab === 'standard' }"
+            @click="activeTab = 'standard'"
+          >
+            <span class="icon">🎴</span>
+            Standard Cards
+            <span class="count">{{ Object.keys(inventoryStore.personalBinder).length }}</span>
+          </button>
+          <button
+            class="tab-btn" :class="{ active: activeTab === 'graded' }"
+            @click="activeTab = 'graded'"
+          >
+            <span class="icon">🏆</span>
+            Graded Cards
+            <span class="count">{{ gradingStore.gradedBinder.length }}</span>
+          </button>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label>Hệ:</label>
+            <select v-model="filters.energyType">
+              <option v-for="t in ENERGY_TYPES" :key="t" :value="t">{{ t }}</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Rarity:</label>
+            <select v-model="filters.rarity">
+              <option v-for="r in RARITIES" :key="r" :value="r">{{ r }}</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Type:</label>
+            <select v-model="filters.cardType">
+              <option v-for="t in CARD_TYPES" :key="t" :value="t">{{ t }}</option>
+            </select>
+          </div>
+          <div v-if="activeTab === 'graded'" class="filter-group">
+            <label>Min Grade:</label>
+            <select v-model.number="filters.minGrade">
+              <option :value="0">Any</option>
+              <option v-for="g in [10, 9, 8, 7, 6, 5]" :key="g" :value="g">≥ {{ g }}</option>
+            </select>
+          </div>
+        </div>
+      </header>
+
+      <!-- Grid Content -->
+      <div class="binder-content">
+        <div v-if="paginatedItemsLength === 0" class="empty-state">
+          <span class="icon">🔍</span>
+          <p>Không tìm thấy thẻ nào phù hợp với bộ lọc.</p>
+        </div>
         
-        <!-- LEFT PAGE -->
-        <div class="binder-page left-page">
-          <div class="page-content">
-            <div v-if="leftPageCards.length === 0" class="empty-page">
-              <span class="text-4xl opacity-30">🎴</span>
-              <p>Trang này còn trống</p>
+        <div v-else class="cards-grid">
+          <template v-if="activeTab === 'standard'">
+            <div v-for="entry in paginatedStandardCards" :key="entry.id" class="card-slot">
+              <TcgCard 
+                :card="entry.card" 
+                :is-flipped="true" 
+                :show-quantity="true"
+                :quantity="entry.qty" 
+                :show-price="true"
+                size="small"
+                @click="detailStore.openCard(entry.card)" 
+              />
             </div>
-            <div v-else class="cards-grid">
-              <div v-for="item in leftPageCards" :key="item.id" v-memo="[item.id, item.quantity, !!item.card]" class="binder-card-slot">
-                <TcgCard 
-                  v-if="item.card"
-                  :card="item.card"
-                  :is-flipped="true"
-                  :show-quantity="true"
-                  :quantity="item.quantity"
-                  :show-price="true"
-                  size="small"
-                  @click="detailStore.openCard(item.card)"
-                />
-                <div v-else class="card-loading-placeholder">
-                  <div class="spinner"></div>
-                  <span>Loading...</span>
-                </div>
-              </div>
+          </template>
+          
+          <template v-else>
+            <div v-for="entry in paginatedGradedSlabs" :key="entry.slab.slabId" class="slab-slot">
+              <SlabDisplay 
+                :slab="entry.slab" 
+                :card="entry.card"
+                @click="detailStore.openCard(entry.card)" 
+              />
             </div>
-          </div>
-          <!-- Page Number Left -->
-          <div class="page-number left">Page {{ currentPage * 2 + 1 }}</div>
+          </template>
         </div>
-
-        <!-- RINGS (CENTER) -->
-        <div class="binder-spine">
-          <div class="ring" v-for="i in 6" :key="i"></div>
-        </div>
-
-        <!-- RIGHT PAGE -->
-        <div class="binder-page right-page">
-          <div class="page-content">
-            <div v-if="rightPageCards.length === 0" class="empty-page">
-              <span class="text-4xl opacity-30">🎴</span>
-              <p>Trang này còn trống</p>
-            </div>
-            <div v-else class="cards-grid">
-              <div v-for="item in rightPageCards" :key="item.id" v-memo="[item.id, item.quantity, !!item.card]" class="binder-card-slot">
-                <TcgCard 
-                  v-if="item.card"
-                  :card="item.card"
-                  :is-flipped="true"
-                  :show-quantity="true"
-                  :quantity="item.quantity"
-                  :show-price="true"
-                  size="small"
-                  @click="detailStore.openCard(item.card)"
-                />
-                <div v-else class="card-loading-placeholder">
-                  <div class="spinner"></div>
-                  <span>Loading...</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- Page Number Right -->
-          <div class="page-number right">Page {{ currentPage * 2 + 2 }}</div>
-        </div>
-
       </div>
 
-      <!-- Navigation & Info Footer -->
-      <div class="binder-footer">
+      <!-- Navigation & Stats Footer -->
+      <footer class="binder-footer">
         <div class="nav-controls">
           <button @click="prevPage" :disabled="currentPage === 0" class="nav-btn prev">
-            <span class="icon">◀</span> TRANG TRƯỚC
+            ◀ PREV
           </button>
-          
           <div class="page-indicator">
-            VIEW {{ currentPage + 1 }} / {{ totalViews }}
+            PAGE {{ currentPage + 1 }} / {{ totalPages }}
           </div>
-
-          <button @click="nextPage" :disabled="currentPage >= totalViews - 1" class="nav-btn next">
-            TRANG SAU <span class="icon">▶</span>
+          <button @click="nextPage" :disabled="currentPage >= totalPages - 1" class="nav-btn next">
+            NEXT ▶
           </button>
         </div>
 
         <div class="binder-stats">
           <div class="stat-item">
-            <span class="label">Tổng số thẻ:</span>
-            <span class="value">{{ binderItems.length }}</span>
-          </div>
-          <div class="stat-item">
-            <span class="label">Giá trị ước tính:</span>
+            <span class="label">Tổng giá trị Binder:</span>
             <span class="value text-green-400">${{ totalEstimatedValue }}</span>
           </div>
         </div>
-      </div>
+      </footer>
     </div>
   </div>
 </template>
 
 <style scoped>
 .binder-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 150;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.9);
@@ -210,172 +303,150 @@ onMounted(() => {
   padding: 2rem;
 }
 
-.close-btn {
-  filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
-}
-
 .binder-container {
   width: 95%;
-  max-width: 1400px;
+  max-width: 1200px;
   height: 90vh;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-}
-
-.binder-body {
-  flex-grow: 1;
-  display: flex;
-  background: #2b1d12; /* Leather color */
+  background: #1a1a1a;
   border-radius: 20px;
-  padding: 15px;
-  box-shadow: 
-    0 25px 50px -12px rgba(0, 0, 0, 0.8),
-    inset 0 0 40px rgba(0,0,0,0.5);
-  border: 4px solid #1a110a;
-  position: relative;
+  border: 4px solid #333;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
   overflow: hidden;
 }
 
-.binder-spine {
-  width: 40px; /* Reduced from 60px */
-  height: 100%;
-  background: linear-gradient(to right, #1a110a, #3d2b1d, #1a110a);
+.binder-header {
+  padding: 20px;
+  background: #252525;
+  border-bottom: 2px solid #333;
   display: flex;
   flex-direction: column;
-  justify-content: space-around;
+  gap: 20px;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+}
+
+.tab-btn {
+  padding: 10px 20px;
+  background: #333;
+  border: none;
+  border-radius: 8px;
+  color: #888;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
   align-items: center;
-  z-index: 10;
-  box-shadow: 0 0 20px rgba(0,0,0,0.5);
+  gap: 10px;
+  transition: all 0.2s;
 }
 
-.ring {
-  width: 30px;
-  height: 10px;
-  background: linear-gradient(to bottom, #d1d5db, #9ca3af, #4b5563);
-  border-radius: 5px;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+.tab-btn.active {
+  background: #4f46e5;
+  color: white;
 }
 
-.binder-page {
-  flex: 1;
-  background: #fdfbf7; /* Paper color */
-  position: relative;
-  padding: 10px 15px; /* Further reduced padding */
-  overflow: hidden;
+.tab-btn .count {
+  background: rgba(0,0,0,0.3);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.8rem;
 }
 
-.left-page {
-  border-radius: 10px 0 0 10px;
-  box-shadow: inset -20px 0 30px rgba(0,0,0,0.05);
-}
-
-.right-page {
-  border-radius: 0 10px 10px 0;
-  box-shadow: inset 20px 0 30px rgba(0,0,0,0.05);
-}
-
-.page-content {
-  height: 100%;
+.filter-bar {
   display: flex;
-  flex-direction: column;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-group label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.filter-group select {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  color: #eee;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.binder-content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  background: #141414;
 }
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  gap: 10px;
-  height: 100%;
-  align-content: stretch;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 20px;
   justify-content: center;
-  align-items: center;
 }
 
-.binder-card-slot {
-  width: 85%; /* Reduced width of the card within its slot */
-  margin: 0 auto; /* Center it */
-  aspect-ratio: 230 / 322;
-  position: relative;
+.card-slot, .slab-slot {
+  display: flex;
+  justify-content: center;
 }
 
-.empty-page {
+.empty-state {
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #94a3b8;
-  font-weight: bold;
-  gap: 1rem;
+  color: #444;
+  gap: 10px;
 }
 
-.page-number {
-  position: absolute;
-  bottom: 15px;
-  font-size: 0.75rem;
-  font-weight: 900;
-  color: #94a3b8;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
+.empty-state .icon { font-size: 3rem; }
 
-.left { left: 20px; }
-.right { right: 20px; }
-
-/* Footer Styling */
 .binder-footer {
+  padding: 15px 30px;
+  background: #252525;
+  border-top: 2px solid #333;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(30, 41, 59, 0.5);
-  padding: 1rem 2rem;
-  border-radius: 15px;
-  border: 1px solid rgba(255,255,255,0.1);
-  color: white;
 }
 
 .nav-controls {
   display: flex;
-  gap: 2rem;
   align-items: center;
+  gap: 20px;
 }
 
 .nav-btn {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  background: #333;
   border: none;
-  padding: 0.5rem 1.5rem;
-  border-radius: 10px;
-  font-weight: 900;
-  font-size: 0.8rem;
+  padding: 8px 16px;
+  border-radius: 6px;
   color: white;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
 }
 
-.nav-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.nav-btn:not(:disabled):hover {
-  transform: scale(1.05);
-  box-shadow: 0 0 15px rgba(79, 70, 229, 0.4);
-}
+.nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 .page-indicator {
-  font-weight: 900;
   font-size: 0.9rem;
-  letter-spacing: 0.2rem;
-  color: #a5b4fc;
-}
-
-.binder-stats {
-  display: flex;
-  gap: 2rem;
+  font-weight: 700;
+  color: #666;
 }
 
 .stat-item {
@@ -385,57 +456,19 @@ onMounted(() => {
 }
 
 .stat-item .label {
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: #666;
   font-weight: 700;
 }
 
 .stat-item .value {
-  font-size: 1.1rem;
-  font-weight: 900;
+  font-size: 1.2rem;
+  font-weight: 800;
 }
 
-.card-loading-placeholder {
-  width: 100%;
-  height: 100%;
-  background: #edf2f7;
-  border-radius: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  color: #a0aec0;
-  font-size: 0.7rem;
-  font-weight: bold;
-}
-
-.spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid #e2e8f0;
-  border-top-color: #4a5568;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* Mobile responsiveness */
-@media (max-width: 1024px) {
-  .binder-body {
-    flex-direction: column;
-    overflow-y: auto;
-  }
-  .binder-spine {
-    width: 100%;
-    height: 40px;
-    flex-direction: row;
-  }
-  .ring {
-    width: 10px;
-    height: 20px;
-  }
-}
+/* Custom Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #1a1a1a; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
 </style>

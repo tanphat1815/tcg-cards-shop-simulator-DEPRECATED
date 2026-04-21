@@ -136,6 +136,7 @@ export default class MainScene extends Phaser.Scene {
 
     // --- Delivery ---
     this.load.image(TEX.BOX_ITEM, boxItemImg)
+    this.load.image(TEX.PACKAGE_BOX, boxItemImg)
 
     // --- Environment tiles ---
     this.load.image(TEX.FLOOR_TILE,    floorTileImg)

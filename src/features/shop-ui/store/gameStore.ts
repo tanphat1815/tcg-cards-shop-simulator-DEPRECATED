@@ -10,6 +10,7 @@ import { useGymStore } from '../../gym/store/gymStore'
 import { useCartStore } from '../../inventory/store/cartStore'
 import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import { usePlayerHandStore } from '../../inventory/store/playerHandStore'
+import { useGradingStore } from '../../grading/store/gradingStore'
 
 /**
  * GameStore (Facade Pattern) - Trung tâm điều phối dữ liệu của toàn bộ ứng dụng.
@@ -100,6 +101,7 @@ export const useGameStore = defineStore('game', {
     setShowBuildMenu(val: boolean) { useUIStore().showBuildMenu = val },
     setShowBinderMenu(val: boolean) { useUIStore().showBinderMenu = val },
     setShowSettings(val: boolean) { useStatsStore().showSettings = val },
+    setShowGradingApp(val: boolean) { useGradingStore().setShowGradingApp(val) },
     openShelfManagement(shelfId: string) { useUIStore().openShelfMenu(shelfId) },
     closeShelfManagement() { useUIStore().closeShelfMenu() },
 
@@ -211,6 +213,7 @@ export const useGameStore = defineStore('game', {
           useGymStore().loadGymState(parsed)
           useDeliveryStore().activeBoxes = parsed.deliveryBoxes || []
           usePlayerHandStore().loadHand(parsed)
+          useGradingStore().loadGradingState(parsed)
           
           console.log('[GameStore] Game loaded successfully')
         } catch (e) {
@@ -246,6 +249,10 @@ export const useGameStore = defineStore('game', {
       safe.gymLeaders = data.gymLeaders || []
       safe.deliveryBoxes = data.deliveryBoxes || []
       
+      safe.gradingPending = data.gradingPending || []
+      safe.gradedBinder = data.gradedBinder || []
+      safe.pendingPackages = data.pendingPackages || []
+      
       return safe
     },
 
@@ -273,7 +280,10 @@ export const useGameStore = defineStore('game', {
         shopState: customer.shopState,
         gymLeaders: useGymStore().gymLeaders,
         deliveryBoxes: useDeliveryStore().activeBoxes,
-        playerHand: usePlayerHandStore().item
+        playerHand: usePlayerHandStore().item,
+        gradingPending: useGradingStore().pendingGrading,
+        gradedBinder: useGradingStore().gradedBinder,
+        pendingPackages: useGradingStore().pendingPackages,
       }
       localStorage.setItem('tcg-shop-save', JSON.stringify(saveData))
     },
@@ -300,6 +310,9 @@ export const useGameStore = defineStore('game', {
         table.occupants = [null, null]
         table.matchStartedAt = null
       })
+
+      // 4. Kiểm tra thẻ đã chấm xong
+      useGradingStore().checkGradingStatus()
 
       this.saveGame()
     },

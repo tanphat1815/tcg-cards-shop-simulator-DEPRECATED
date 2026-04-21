@@ -7,6 +7,8 @@ import { applyDynamicYSort, applyFootCollider } from '../ySortUtils'
 import { useFurnitureStore } from '../../furniture/store/furnitureStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { useUIStore } from '../../shop-ui/store/uiStore'
+import { useGradingStore } from '../../grading/store/gradingStore'
+import { TEX } from '../assetKeys'
 
 interface LiveBox {
   id: string
@@ -32,6 +34,7 @@ export class DeliveryManager {
   private spawnInterval = 800
   private keyF!: Phaser.Input.Keyboard.Key
   private hintText!: Phaser.GameObjects.Text
+  private packageSprites: Map<string, Phaser.GameObjects.Sprite> = new Map()
 
 
   constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager) {
@@ -78,6 +81,17 @@ export class DeliveryManager {
       padding: { x: 10, y: 6 },
       fontStyle: 'bold',
     }).setDepth(999).setScrollFactor(0).setVisible(false)
+
+    // 4. Lắng nghe event Grading Package
+    window.addEventListener('grading:package-arrived', ((ev: CustomEvent) => {
+      const { packageId } = ev.detail
+      this.spawnGradingPackage(packageId)
+    }) as EventListener)
+
+    window.addEventListener('grading:package-consumed', ((ev: CustomEvent) => {
+      const { packageId } = ev.detail
+      this.removeGradingPackage(packageId)
+    }) as EventListener)
   }
 
   update(time: number, playerX: number, playerY: number) {
@@ -422,6 +436,58 @@ export class DeliveryManager {
     this.spawnBox(data, data.x, data.y)
   }
 
+  // === GRADING PACKAGES ===
+
+  private spawnGradingPackage(packageId: string) {
+    console.log('[DeliveryManager] Spawning grading package:', packageId)
+    // Spawn gần cửa shop
+    const door = this.environmentManager.getDoorLocation()
+    const x = door.x + 60 + Math.random() * 40
+    const y = door.y + 30
+
+    const sprite = this.scene.add.sprite(x, y, TEX.PACKAGE_BOX)
+      .setOrigin(0.5, 1)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(DEPTH.LAYER3_OBJECTS + y)
+
+    // Icon ❓ trên đầu để Player biết click được
+    const label = this.scene.add.text(x, y - 50, '❓', { 
+        fontSize: '20px',
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        padding: { x: 4, y: 2 }
+    })
+      .setOrigin(0.5)
+      .setDepth(DEPTH.UI_TEXT)
+
+    // Click handler
+    sprite.on('pointerdown', () => {
+      useGradingStore().openPackage(packageId)
+    })
+
+    // Idle bounce animation
+    this.scene.tweens.add({
+      targets: [sprite, label],
+      y: '-=6',
+      duration: 800, 
+      yoyo: true, 
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    })
+
+    this.packageSprites.set(packageId, sprite)
+    sprite.setData('label', label)
+  }
+
+  private removeGradingPackage(packageId: string) {
+    console.log('[DeliveryManager] Removing grading package:', packageId)
+    const sprite = this.packageSprites.get(packageId)
+    if (!sprite) return
+    const label = sprite.getData('label') as Phaser.GameObjects.Text
+    label?.destroy()
+    sprite.destroy()
+    this.packageSprites.delete(packageId)
+  }
+
   destroy() {
     this.boxes.forEach(b => {
       b.sprite.destroy()
@@ -429,6 +495,13 @@ export class DeliveryManager {
       b.qtyLabel.destroy()
     })
     this.boxes = []
+    
+    // Clear packages
+    this.packageSprites.forEach((_, packageId) => {
+        this.removeGradingPackage(packageId)
+    })
+    this.packageSprites.clear()
+
     this.boxGroup.clear(true, true)
     this.deliveryZoneGroup.clear(true, true)
     this.hintText.destroy()
