@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import { EnvironmentManager } from './EnvironmentManager'
 import { DEPTH } from '../config'
-import { TEX } from '../assetKeys'
+import { AppConfig } from '../../../game/config/AppConfig'
 import { applyDynamicYSort, applyFootCollider } from '../ySortUtils'
 import { useFurnitureStore } from '../../furniture/store/furnitureStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
@@ -138,7 +138,8 @@ export class DeliveryManager {
     const spawnY = y ?? (dz.y - 200) // Rơi từ trên cao xuống
 
     // ==================== SPAWN BOX (2.5D) ====================
-    const boxSprite = this.scene.physics.add.sprite(spawnX, spawnY, TEX.BOX_ITEM)
+    const boxTexture = item.type === 'furniture' ? AppConfig.ASSETS.BOXES.FURNITURE : AppConfig.ASSETS.BOXES.ITEM
+    const boxSprite = this.scene.physics.add.sprite(spawnX, spawnY, boxTexture)
     boxSprite.setOrigin(0.5, 1)               // R1: foot anchor
     applyFootCollider(boxSprite, 1.0)         // Box is cuboid — full-height collider
     boxSprite.setCollideWorldBounds(true)

@@ -1,9 +1,9 @@
 import Phaser from 'phaser'
+import { AppConfig } from '../../../game/config/AppConfig'
 import { EnvironmentManager } from '../../environment/managers/EnvironmentManager'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import type { NPCState, Customer } from '../types'
 import { DEPTH } from '../../environment/config'
-import { TEX } from '../../environment/assetKeys'
 import { applyDynamicYSort, applyFootCollider } from '../../environment/ySortUtils'
 
 /**
@@ -92,10 +92,14 @@ export class NPCManager {
     const doorLocation = this.environmentManager.getDoorLocation()
 
     // --- 2.5D SPRITE SETUP ---
+    // Pick a random NPC sheet from the pool defined in AppConfig
+    const pool = AppConfig.ASSETS.NPC_POOLS
+    const selectedTexture = pool[Math.floor(Math.random() * pool.length)].key
+
     const npcSprite = this.scene.physics.add.sprite(
       doorLocation.x,
       doorLocation.y + 50,
-      TEX.NPC,
+      selectedTexture,
       0 // Frame đầu tiên (down-idle)
     )
     npcSprite.setOrigin(0.5, 1)              // R1 — foot anchor (bottom-center)

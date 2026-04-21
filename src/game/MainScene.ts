@@ -1,7 +1,5 @@
 import Phaser from 'phaser'
 import playerSheet from '../assets/images/player_sheet.png'
-import npcSheet from '../assets/images/npc_sheet.png'
-import staffSheet from '../assets/images/staff_sheet.png'
 import shelfSellingImg from '../assets/images/shelf_selling.png'
 import shelfStorageImg from '../assets/images/shelf_storage.png'
 import cashierDeskImg from '../assets/images/cashier_desk.png'
@@ -29,6 +27,7 @@ import { TownManager } from '../features/gym/managers/TownManager'
 import { DeliveryManager } from '../features/environment/managers/DeliveryManager'
 import { useGymStore } from '../features/gym/store/gymStore'
 import gymBuildingImg from '../assets/images/gym_building.svg'
+import { AppConfig } from './config/AppConfig'
 
 /**
  * MainScene - Trái tim điều khiển (Orchestrator) của trò chơi trong Phaser.
@@ -113,12 +112,23 @@ export default class MainScene extends Phaser.Scene {
    * - TẤT CẢ key phải đi qua TEX constant, không hardcode.
    */
   preload() {
-    // --- Characters (spritesheets) ---
+    // --- Core UI & Characters ---
     this.load.spritesheet(TEX.PLAYER, playerSheet, { frameWidth: 32, frameHeight: 48 })
-    this.load.spritesheet(TEX.NPC,    npcSheet,    { frameWidth: 32, frameHeight: 48 })
-    this.load.spritesheet(TEX.STAFF,  staffSheet,  { frameWidth: 32, frameHeight: 48 })
+
+    // --- Dynamic Pools (NPCs & Staff) ---
+    // Duyệt qua config để load toàn bộ sheet trong pool
+    AppConfig.ASSETS.NPC_POOLS.forEach(pool => {
+      // Dùng require() hoặc import cơ bản không hoạt động tốt cho dynamic paths ở build-time Vite. 
+      // Tuy nhiên trong phát triển, ta sẽ dùng đường dẫn trực tiếp từ assets folder.
+      this.load.spritesheet(pool.key, `src/assets/images/${pool.path}`, { frameWidth: 32, frameHeight: 48 })
+    })
+
+    AppConfig.ASSETS.STAFF_POOLS.forEach(pool => {
+      this.load.spritesheet(pool.key, `src/assets/images/${pool.path}`, { frameWidth: 32, frameHeight: 48 })
+    })
 
     // --- Furniture (single images) ---
+    // ... (rest remains same but uses TEX keys)
     this.load.image(TEX.SHELF_SELLING, shelfSellingImg)
     this.load.image(TEX.SHELF_STORAGE, shelfStorageImg)
     this.load.image(TEX.CASHIER_DESK,  cashierDeskImg)
@@ -132,9 +142,7 @@ export default class MainScene extends Phaser.Scene {
     this.load.image(TEX.WALL_TOP,      wallTopImg)
     this.load.image(TEX.WALL_SIDE,     wallSideImg)
     this.load.image(TEX.SIDEWALK_TILE, sidewalkTileImg)
-
-    // --- Legacy (giữ lại để không phá Town/Gym) ---
-    this.load.image('gym_building', gymBuildingImg)
+    this.load.image('gym_building',    gymBuildingImg)
   }
 
   /**
@@ -170,12 +178,17 @@ export default class MainScene extends Phaser.Scene {
     this.setupUI()
 
     // 4. Thiết lập vật lý và môi trường khởi đầu
-    // Full world bounds — never clamp smaller than this.
-    // Camera bounds stay at full world size so the player can freely roam
-    // the outdoor Delivery Zone, Sidewalk, Staff Rest Area, and Gym Town.
     this.physics.world.setBounds(0, 0, 5500, 3000)
+    
+    // 3. Khởi tạo Camera
     this.cameras.main.setBounds(0, 0, 5500, 3000)
     this.cameras.main.setBackgroundColor('#000000')
+    this.cameras.main.setZoom(AppConfig.GAME.CAMERA.ZOOM)
+    this.cameras.main.startFollow(this.player || { x: 0, y: 0 }, true, 0.05, 0.05)
+    
+    if (AppConfig.GAME.CAMERA.CLAMP_BOUNDS) {
+      this.cameras.main.setRoundPixels(true)
+    }
     this.environmentManager.initializeEnvironment()
     this.furnitureManager.initializeFurniture()
     this.townManager.initializeTown()
@@ -213,11 +226,7 @@ export default class MainScene extends Phaser.Scene {
     // 7. Cấu hình Input (Keyboard/Mouse)
     this.setupInputs()
 
-    // 8. Cấu hình Camera (Follow Player)
-    // Zoom 2.5x creates the cozy Stardew Valley close-up feel.
-    // startFollow lerp values (0.08, 0.08) give smooth but responsive tracking.
-    this.cameras.main.setZoom(2.5)
-    this.cameras.main.startFollow(this.player, true, 0.08, 0.08)
+    // 8. Cấu hình Camera — đã được init ở mục 4 thông qua AppConfig
 
     // 9. Đăng ký Store Subscriptions
     this.setupStoreSubscriptions(gameStore)
@@ -242,7 +251,7 @@ export default class MainScene extends Phaser.Scene {
     this.environmentManager.refreshEnvironment()
 
     // 12. Vẽ Cổng đi sang Gym Town (Ban đầu)
-    this.shopToTownGate = this.add.text(0, 0, '⛩️ KHU GYM', { 
+    this.shopToTownGate = this.add.text(0, 0, AppConfig.UI.TITLES.GYM_TOWN, { 
       fontSize: '20px', 
       backgroundColor: 'rgba(0,0,0,0.6)', 
       padding: { x: 10, y: 5 },
@@ -598,9 +607,9 @@ export default class MainScene extends Phaser.Scene {
     )
 
     if (distToTownGate < GATE_DETECT_RADIUS) {
-      this.gateHintText.setText('Bấm [E] để tới Gym Town').setVisible(true)
+      this.gateHintText.setText(AppConfig.UI.MESSAGES.GO_TO_GYM).setVisible(true)
     } else if (distToShopGate < GATE_DETECT_RADIUS) {
-      this.gateHintText.setText('Bấm [E] về Shop').setVisible(true)
+      this.gateHintText.setText(AppConfig.UI.MESSAGES.RETURN_TO_SHOP).setVisible(true)
     } else {
       this.gateHintText.setVisible(false)
     }
@@ -911,7 +920,7 @@ export default class MainScene extends Phaser.Scene {
         container.setAlpha(0.6).setDepth(DEPTH.GHOST)
         this.ghostRectangle = container as any
         
-        this.ghostText = this.add.text(0, -h/2 - 20, 'ROTATE: R', { fontSize: '10px', color: '#fff' }).setOrigin(0.5)
+        this.ghostText = this.add.text(0, -h/2 - 20, AppConfig.UI.MESSAGES.PLACE_HINT, { fontSize: '10px', color: '#fff' }).setOrigin(0.5)
         this.ghostText.setDepth(DEPTH.GHOST + 1)
       } else {
         this.ghostSprite = this.add.sprite(0, 0, profile.texture)

@@ -1,13 +1,12 @@
 import Phaser from 'phaser'
 import { DEPTH } from '../../environment/config'
-import { TEX } from '../../environment/assetKeys'
 import { applyDynamicYSort, applyFootCollider } from '../../environment/ySortUtils'
 import { useStaffStore } from '../store/staffStore'
 import { useGameStore } from '../../shop-ui/store/gameStore'
+import { useFurnitureStore } from '../../furniture/store/furnitureStore'
 import type { WorkerDuty } from '../types'
 import { EnvironmentManager } from '../../environment/managers/EnvironmentManager'
-import { useFurnitureStore } from '../../furniture/store/furnitureStore'
-
+import { AppConfig } from '../../../game/config/AppConfig'
 import { DeliveryManager } from '../../environment/managers/DeliveryManager'
 
 /** Trạng thái nội bộ của nhân viên khi thực hiện Restock */
@@ -79,10 +78,15 @@ export class StaffManager {
       
       if (!worker) {
         const spawnLoc = this.environmentManager.idleStaffZone
+        
+        // Pick a staff sheet from the pool
+        const pool = AppConfig.ASSETS.STAFF_POOLS
+        const selectedTexture = pool[Math.floor(Math.random() * pool.length)].key
+
         const sprite = this.scene.physics.add.sprite(
           spawnLoc.x,
           spawnLoc.y,
-          TEX.STAFF,   // ← Đổi từ 'npc' sang TEX.STAFF (có uniform riêng)
+          selectedTexture,
           0
         )
         sprite.setOrigin(0.5, 1)             // R1: foot anchor

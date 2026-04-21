@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import { AppConfig } from './game/config/AppConfig'
 import GameContainer from './features/shop-ui/components/GameContainer.vue'
 import UIOverlay from './features/shop-ui/components/UIOverlay.vue'
 import PackOpeningOverlay from './features/shop-ui/components/PackOpeningOverlay.vue'
@@ -35,8 +36,12 @@ const playerHandStore = usePlayerHandStore()
 onMounted(() => {
   store.loadSave()
   
-  // Subscribe vào TẤT CẢ store con để auto-save (Vì Facade không bắt được thay đổi trực tiếp)
-  const saveCallback = () => store.saveGame()
+  // Subscribe vào TẤT CẢ store con để auto-save
+  const saveCallback = () => {
+     if (AppConfig.GAME.SETTINGS.AUTO_SAVE) {
+        store.saveGame()
+     }
+  }
 
   statsStore.$subscribe(saveCallback, { deep: true })
   inventoryStore.$subscribe(saveCallback, { deep: true })
