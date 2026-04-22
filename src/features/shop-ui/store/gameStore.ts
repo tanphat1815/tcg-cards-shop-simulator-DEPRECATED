@@ -11,6 +11,8 @@ import { useCartStore } from '../../inventory/store/cartStore'
 import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import { usePlayerHandStore } from '../../inventory/store/playerHandStore'
 import { useGradingStore } from '../../grading/store/gradingStore'
+import { useEventStore } from '../../events/store/eventStore'
+
 
 /**
  * GameStore (Facade Pattern) - Trung tâm điều phối dữ liệu của toàn bộ ứng dụng.
@@ -214,6 +216,8 @@ export const useGameStore = defineStore('game', {
           useDeliveryStore().activeBoxes = parsed.deliveryBoxes || []
           usePlayerHandStore().loadHand(parsed)
           useGradingStore().loadGradingState(parsed)
+          useEventStore().loadEventState(parsed)
+
           
           console.log('[GameStore] Game loaded successfully')
         } catch (e) {
@@ -253,6 +257,11 @@ export const useGameStore = defineStore('game', {
       safe.gradedBinder = data.gradedBinder || []
       safe.pendingPackages = data.pendingPackages || []
       
+      safe.activeEventId = data.activeEventId || 'standard'
+      safe.nextEventId = data.nextEventId || 'standard'
+      safe.totalPlayersHosted = data.totalPlayersHosted || 0
+
+      
       return safe
     },
 
@@ -284,7 +293,11 @@ export const useGameStore = defineStore('game', {
         gradingPending: useGradingStore().pendingGrading,
         gradedBinder: useGradingStore().gradedBinder,
         pendingPackages: useGradingStore().pendingPackages,
+        activeEventId: useEventStore().activeEventId,
+        nextEventId: useEventStore().nextEventId,
+        totalPlayersHosted: useEventStore().totalPlayersHosted,
       }
+
       localStorage.setItem('tcg-shop-save', JSON.stringify(saveData))
     },
 
@@ -313,6 +326,10 @@ export const useGameStore = defineStore('game', {
 
       // 4. Kiểm tra thẻ đã chấm xong
       useGradingStore().checkGradingStatus()
+
+      // 5. Áp dụng event mới
+      useEventStore().applyNextEventOnNewDay()
+
 
       this.saveGame()
     },

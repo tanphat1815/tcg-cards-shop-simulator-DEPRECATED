@@ -11,6 +11,8 @@ export const useUIStore = defineStore('ui', {
     showBinderMenu: false,
     showBuildMenu: false,
     showOnlineShop: false,
+    showManageEvent: false,
+
     
     // Tham chiếu đến vật phẩm UI đang tương tác
     activeShelfId: null as string | null,

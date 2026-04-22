@@ -22,6 +22,10 @@ import { useGameStore } from './features/shop-ui/store/gameStore'
 import GradingServiceApp from './features/grading/components/GradingServiceApp.vue'
 import GradingReveal from './features/grading/components/GradingReveal.vue'
 import { useGradingStore } from './features/grading/store/gradingStore'
+import { useEventStore } from './features/events/store/eventStore'
+import { useUIStore } from './features/shop-ui/store/uiStore'
+import ManageEventApp from './features/events/components/ManageEventApp.vue'
+
 import { useStatsStore } from './features/stats/store/statsStore'
 import { useInventoryStore } from './features/inventory/store/inventoryStore'
 import { useFurnitureStore } from './features/furniture/store/furnitureStore'
@@ -39,6 +43,9 @@ const deliveryStore = useDeliveryStore()
 const playerHandStore = usePlayerHandStore()
 const tradeInStore = useTradeInStore()
 const gradingStore = useGradingStore()
+const eventStore = useEventStore()
+const uiStore = useUIStore()
+
 
 onMounted(() => {
   store.loadSave()
@@ -58,6 +65,8 @@ onMounted(() => {
   playerHandStore.$subscribe(saveCallback, { deep: true })
   tradeInStore.$subscribe(saveCallback, { deep: true })
   gradingStore.$subscribe(saveCallback, { deep: true })
+  eventStore.$subscribe(saveCallback, { deep: true })
+
 })
 </script>
 
@@ -83,5 +92,7 @@ onMounted(() => {
     <TradeInModal />
     <GradingServiceApp :is-open="gradingStore.showGradingApp" @close="gradingStore.setShowGradingApp(false)" />
     <GradingReveal />
+    <ManageEventApp :is-open="uiStore.showManageEvent" @close="uiStore.showManageEvent = false" />
   </div>
+
 </template>

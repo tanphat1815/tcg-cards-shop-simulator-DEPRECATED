@@ -2,7 +2,9 @@
 import { computed, watch, ref } from 'vue'
 import { useGameStore } from '../store/gameStore'
 import { useBattleStore } from '../../battle/store/battleStore'
+import { useUIStore } from '../store/uiStore'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
+
 import CartButton from '../../inventory/components/CartButton.vue'
 
 /**
@@ -10,6 +12,8 @@ import CartButton from '../../inventory/components/CartButton.vue'
  */
 const gameStore = useGameStore()
 const battleStore = useBattleStore()
+const uiStore = useUIStore()
+
 
 // Clock logic - Removed from Vue to keep single source of truth in Phaser MainScene
 
@@ -188,7 +192,17 @@ const isInventoryMinimized = ref(false)
             >
               ⚔️ BATTLE
             </EnhancedButton>
+            <EnhancedButton
+              variant="primary"
+              size="md"
+              :icon="{ name: 'star', position: 'left' }"
+              @click="uiStore.showManageEvent = true"
+              title="Quản lý sự kiện tại bàn chơi"
+            >
+              🎮 EVENT
+            </EnhancedButton>
             <CartButton />
+
           </div>
         </div>
         <div v-else key="minimized" class="pointer-events-auto flex items-center gap-2">

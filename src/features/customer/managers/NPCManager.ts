@@ -7,7 +7,9 @@ import { DEPTH } from '../../environment/config'
 import { useStatsStore } from '../../stats/store/statsStore'
 import { useApiStore } from '../../inventory/store/apiStore'
 import { getRawPrice } from '../../shared/utils/currency'
+import { useEventStore } from '../../events/store/eventStore'
 import type { NPCState, Customer, CustomerIntent } from '../types'
+
 
 /**
  * NPCManager - Hệ thống điều phối AI cho toàn bộ khách hàng trong Game.
@@ -189,6 +191,7 @@ export class NPCManager {
     
     // Cờ báo hiệu Shop đang trong giai đoạn đóng cửa
     const isClosingTime = gameStore.timeInMinutes >= 1200 || gameStore.shopState === 'CLOSED'
+    const isNinePM = gameStore.timeInMinutes >= 1260
     
     for (let i = this.customers.length - 1; i >= 0; i--) {
       const customer = this.customers[i]
@@ -213,6 +216,13 @@ export class NPCManager {
          }
       }
 
+      // ── NEW: Force checkout at 9:00 PM (1260 mins) ──
+      if (isNinePM && customer.state === 'PLAYING') {
+        this._startEventCheckout(customer)
+        continue
+      }
+
+
       // 3. Đồng bộ với Store: Nếu NPC đã được thanh toán (không còn trong queue) -> Cho phép rời đi
       if (customer.state === 'WAITING' || customer.state === 'GO_CASHIER') {
         const isInQueue = gameStore.waitingQueue.some((item: any) => item.instanceId === customer.instanceId)
@@ -233,6 +243,7 @@ export class NPCManager {
       }
     }
   }
+
 
   /**
    * Xử lý hướng Animation + Y-Sort cho NPC mỗi frame.
@@ -294,7 +305,9 @@ export class NPCManager {
         label = (table && table.matchStartedAt) ? '🃏 Playing match' : '⌛ Waiting for Opponent';
         break;
       }
+      case 'GO_CASHIER_EVENT': label = '💰 Paying Event Fee'; break;
       case 'LEAVE': label = (time - customer.spawnTime > 40000) ? '😒 Bored - Leaving' : '👋 Leaving'; break;
+
     }
     customer.statusText.setText(label)
   }
@@ -332,7 +345,9 @@ export class NPCManager {
       case 'LEAVE': this.handleLeave(customer); break;
       case 'TRADE_IN': this.handleTradeIn(customer); break;
       case 'TRADE_IN_WAITING': this.handleTradeInWaiting(customer, time); break;
+      case 'GO_CASHIER_EVENT': this.handleGoCashierEvent(customer); break;
     }
+
   }
 
   /** NPC mới xuất hiện đi bộ vào giữa cửa hàng */
@@ -410,7 +425,10 @@ export class NPCManager {
       // depth will be correct on the very next frame automatically.
       customer.state = 'PLAYING'
       customer.timer = 0
+      // ── NEW: Lưu timestamp bắt đầu chơi (dùng Date.now để đồng bộ với matchStartedAt) ──
+      customer.playStartTimestamp = Date.now()
     }
+
   }
 
   /** Xử lý trong trận đấu: tính thời gian và EXP khi thắng */
@@ -442,9 +460,13 @@ export class NPCManager {
           const xpText = this.scene.add.text(myTable.x, myTable.y - 60, '+50 XP', { fontSize: '18px', color: '#f1c40f', fontStyle: 'bold' }).setOrigin(0.5)
           this.scene.tweens.add({ targets: xpText, y: xpText.y - 40, alpha: 0, duration: 2000, onComplete: () => xpText.destroy() })
         }
-        this.npcLeaveShop(customer)
+
+        // ── NEW: Kiểm tra giờ đóng cửa hoặc kết thúc match ──
+        this._startEventCheckout(customer)
       }
+
     }
+
   }
 
   /** Khách đi dạo tìm kiếm kệ hàng có sản phẩm */
@@ -609,8 +631,25 @@ export class NPCManager {
       const itemId = shelfIdTaken ? store.npcTakeItemFromSlot(shelfIdTaken) : null
       if (itemId) {
         const itemData = store.shopItems[itemId]
-        customer.targetPrice = itemData ? itemData.sellPrice : 15
+        let basePrice = itemData ? itemData.sellPrice : 15
         
+        // ── NEW: Apply Event Multiplier for Packs/Boxes ──
+        let eventMultiplier = 1.0
+        if (itemData && itemData.sourceSetId) {
+          const apiStore = useApiStore()
+          const eventStore = useEventStore()
+          const setCards = apiStore.setCardsCache[itemData.sourceSetId] || []
+          
+          if (setCards.length > 0) {
+            // Pick 1 random card as representative for the set's "vibes"
+            const repCard = setCards[Math.floor(Math.random() * setCards.length)]
+            eventMultiplier = eventStore.getEventPriceMultiplier(repCard)
+          }
+        }
+        
+        const finalPrice = basePrice * eventMultiplier
+        customer.targetPrice = finalPrice
+
         // Popup thông báo lấy được hàng
         const popupText = itemData?.type === 'box' ? '+1 Box 📦' : '+1 Pack 🎁'
         const popup = this.scene.add.text(customer.sprite.x, customer.sprite.y - 40, popupText, { fontSize: '12px', color: '#00ff00', fontStyle: 'bold' }).setOrigin(0.5)
@@ -619,6 +658,7 @@ export class NPCManager {
         // Chuyển sang hàng chờ Thanh toán
         customer.state = 'GO_CASHIER'
         store.addWaitingCustomer(customer.targetPrice, customer.instanceId)
+
         
         // Di chuyển tới xếp hàng tại quầy Thu Ngân
         const cashier = Object.values(store.placedCashiers)[0] as any
@@ -842,4 +882,125 @@ export class NPCManager {
   destroy() {
     this.cleanupAllNPCs()
   }
+
+  /**
+   * ── NEW: PASSIVE EVENT SYSTEM HELPERS ──
+   */
+
+  /**
+   * NPC chơi xong → tính phí event, chuyển sang state GO_CASHIER_EVENT.
+   */
+  private _startEventCheckout(customer: Customer) {
+    const eventStore = useEventStore()
+    const activeEvent = eventStore.activeEvent
+
+    // Tính phí theo công thức: payment = (sessionMinutes / 60) × hourlyFee
+    const startTs = customer.playStartTimestamp ?? Date.now()
+    const elapsedMs = Date.now() - startTs
+    const elapsedMinutes = elapsedMs / 60000  // real minutes
+
+    let fee = 0
+    if (activeEvent) {
+      fee = (elapsedMinutes / 60) * activeEvent.hourlyFee
+      // Round 2 decimals
+      fee = Math.round(fee * 100) / 100
+    }
+
+    // Min fee guard — nếu quá ngắn (< 1 phút) vẫn charge base nếu có event
+    if (fee < 0.5 && activeEvent && activeEvent.id !== 'standard') fee = 0.5
+
+    customer.eventFeeOwed = fee
+
+    // Free seat cho NPC khác
+    if (customer.assignedTableId && customer.seatIndex !== undefined) {
+      const gStore = useGameStore()
+      const table = gStore.placedTables[customer.assignedTableId]
+      if (table && table.occupants[customer.seatIndex!] === customer.instanceId) {
+        table.occupants[customer.seatIndex!] = null
+      }
+    }
+
+    // Chuyển state
+    if (fee > 0) {
+      customer.state = 'GO_CASHIER_EVENT'
+      customer.searchStartTime = this.scene.time.now
+    } else {
+      // Event free → leave luôn
+      this._applyEventPayment(customer)
+      this.npcLeaveShop(customer)
+    }
+  }
+
+
+  private handleGoCashierEvent(customer: Customer) {
+    const gameStore = useGameStore()
+    const cashiers = Object.values(gameStore.placedCashiers) as any[]
+    if (cashiers.length === 0) {
+      // Không có quầy → coi như thanh toán thẳng
+      this._applyEventPayment(customer)
+      this.npcLeaveShop(customer)
+      return
+    }
+
+    const desk = cashiers[0]
+    customer.targetX = desk.x
+    customer.targetY = desk.y + 45
+
+    const dist = Phaser.Math.Distance.Between(
+      customer.sprite.x, customer.sprite.y,
+      customer.targetX, customer.targetY
+    )
+
+    if (dist > 14) {
+      this.scene.physics.moveTo(customer.sprite, customer.targetX, customer.targetY, this.npcSpeed)
+    } else {
+      customer.sprite.body?.velocity.set(0)
+      // Thanh toán ngay khi tới quầy (không cần click — khách tự trả)
+      this._applyEventPayment(customer)
+      this.npcLeaveShop(customer)
+    }
+  }
+
+  /**
+   * Áp dụng thanh toán phí event:
+   *   - Cộng tiền vào statsStore
+   *   - Tăng counter totalPlayersHosted
+   *   - Spawn popup "+ $X.XX" tại bàn chơi
+   */
+  private _applyEventPayment(customer: Customer) {
+    const fee = customer.eventFeeOwed ?? 0
+    if (fee <= 0) return
+
+    const statsStore = useStatsStore()
+    const eventStore = useEventStore()
+
+    statsStore.addMoney(fee)
+    statsStore.dailyStats.revenue += fee
+    eventStore.incrementPlayersHosted(fee)
+
+    // Popup "+$X.XX" tại vị trí NPC
+    const popupX = customer.sprite.x
+    const popupY = customer.sprite.y - 50
+
+    const popup = this.scene.add.text(popupX, popupY, `+$${fee.toFixed(2)}`, {
+      fontSize: '18px',
+      color: '#10b981',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
+
+    this.scene.tweens.add({
+      targets: popup,
+      y: popupY - 60,
+      alpha: 0,
+      duration: 2000,
+      ease: 'Cubic.easeOut',
+      onComplete: () => popup.destroy(),
+    })
+
+    // Reset field để không double-charge
+    customer.eventFeeOwed = 0
+  }
+
 }

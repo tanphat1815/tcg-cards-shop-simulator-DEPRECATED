@@ -11,6 +11,8 @@ export type NPCState =
   | 'PLAYING'
   | 'TRADE_IN'          // NPC đang di chuyển tới quầy thu ngân để bán thẻ
   | 'TRADE_IN_WAITING'  // NPC đứng tại quầy, đợi Player click tương tác
+  | 'GO_CASHIER_EVENT'   // ── NEW: Đi thanh toán phí event ──
+
 
 export type CustomerIntent = 'BUY' | 'PLAY' | 'SELL'
 
@@ -37,5 +39,12 @@ export interface Customer {
   tradeCardId?: string;
   /** Icon 🃏 lơ lửng trên đầu NPC (destroy khi rời shop) */
   tradeIcon?: Phaser.GameObjects.Text;
+
+  // ── NEW: Passive Event fields ─────────────────────────────────
+  /** Thời điểm (Date.now()) bắt đầu ngồi chơi — để tính phí event */
+  playStartTimestamp?: number;
+  /** Số tiền sẽ thanh toán khi tới quầy */
+  eventFeeOwed?: number;
 }
+
 

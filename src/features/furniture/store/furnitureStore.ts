@@ -5,6 +5,9 @@ import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { useStaffStore } from '../../staff/store/staffStore'
 import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import { useGradingStore } from '../../grading/store/gradingStore'
+import { useApiStore } from '../../inventory/store/apiStore'
+import { useEventStore } from '../../events/store/eventStore'
+
 import type { ShelfData, PlayTableData, CashierData, ShelfTier, ShelfRole } from '../types'
 
 /**
@@ -393,9 +396,18 @@ export const useFurnitureStore = defineStore('furniture', {
       const isSlab = tier.isSlabMap?.[picked.cardId] ?? false
       const slab = isSlab ? tier.slabs?.[picked.cardId] : null
       const baseCardId = isSlab ? (slab?.cardId ?? picked.cardId) : picked.cardId
-      const multiplier = isSlab ? (slab?.priceMultiplier ?? 1) : 1
+      
+      const apiStore = useApiStore()
+      const eventStore = useEventStore()
+      
+      const card = apiStore.flatCardMap[baseCardId]
+      const eventMultiplier = card ? eventStore.getEventPriceMultiplier(card) : 1.0
+      
+      // Slab multiplier (grading) + Event multiplier (passive)
+      const totalMultiplier = (isSlab ? (slab?.priceMultiplier ?? 1) : 1) * eventMultiplier
 
-      return { price, isSlab, baseCardId, multiplier, ...picked }
+      return { price, isSlab, baseCardId, multiplier: totalMultiplier, ...picked }
+
     },
 
     /**
