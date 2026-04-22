@@ -16,7 +16,7 @@ export type NPCState =
 
 export type CustomerIntent = 'BUY' | 'PLAY' | 'SELL'
 
-export interface Customer {
+export interface CustomerData {
   sprite: Phaser.Physics.Arcade.Sprite;
   state: NPCState;
   timer: number;
@@ -45,6 +45,12 @@ export interface Customer {
   playStartTimestamp?: number;
   /** Số tiền sẽ thanh toán khi tới quầy */
   eventFeeOwed?: number;
+
+  // ── NEW: FSM Persistent Data ──────────────────────────────
+  /** ID của kệ đang chọn */
+  targetShelfId?: string;
+  /** Index của tầng kệ đang chọn */
+  targetTierIndex?: number;
 }
 
 

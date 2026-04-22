@@ -33,6 +33,7 @@ import { useCustomerStore } from './features/customer/store/customerStore'
 import { useDeliveryStore } from './features/inventory/store/deliveryStore'
 import { usePlayerHandStore } from './features/inventory/store/playerHandStore'
 import { useTradeInStore } from './features/inventory/store/tradeInStore'
+import { eventBus, EVENTS } from './features/shared/EventBus'
 
 const store = useGameStore()
 const statsStore = useStatsStore()
@@ -66,6 +67,11 @@ onMounted(() => {
   tradeInStore.$subscribe(saveCallback, { deep: true })
   gradingStore.$subscribe(saveCallback, { deep: true })
   eventStore.$subscribe(saveCallback, { deep: true })
+
+  // Lắng nghe sự kiện từ NPC AI (Phaser -> Vue)
+  eventBus.on(EVENTS.NPC_TRADE_REQUEST, ({ instanceId, cardId }) => {
+    tradeInStore.startTrade(instanceId, cardId)
+  })
 
 })
 </script>

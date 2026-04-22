@@ -26,6 +26,7 @@ import { StaffManager } from '../features/staff/managers/StaffManager'
 import { TownManager } from '../features/gym/managers/TownManager'
 import { DeliveryManager } from '../features/environment/managers/DeliveryManager'
 import { useGymStore } from '../features/gym/store/gymStore'
+import { aStarGrid } from '../features/environment/managers/AStarGridManager'
 import gymBuildingImg from '../assets/images/gym_building.svg'
 import { AppConfig } from './config/AppConfig'
 
@@ -168,6 +169,10 @@ export default class MainScene extends Phaser.Scene {
     this.deliveryManager = new DeliveryManager(this, this.environmentManager)
     this.staffManager = new StaffManager(this, this.environmentManager, this.deliveryManager)
 
+    // Khởi tạo A* Grid
+    const shopBounds = this.environmentManager.getShopBounds()
+    aStarGrid.initialize(shopBounds.x, shopBounds.y, shopBounds.w, shopBounds.h)
+
     // 5. Khởi tạo Gym Leaders (chỉ lần đầu) - TRƯỚC khi init Town để tránh Race Condition
     const gymStore = useGymStore()
     gymStore.initializeGymLeaders()
@@ -256,6 +261,7 @@ export default class MainScene extends Phaser.Scene {
     // 11. Các tính năng mở rộng (Kéo camera, vẽ shop)
     this.setupCameraDrag()
     this.environmentManager.refreshEnvironment()
+    this.refreshAStarGrid()
 
     // 12. Vẽ Cổng đi sang Gym Town (Ban đầu)
     this.shopToTownGate = this.add.text(0, 0, AppConfig.UI.TITLES.GYM_TOWN, { 
@@ -434,7 +440,13 @@ export default class MainScene extends Phaser.Scene {
         lastSettings = currentSettings
         this.environmentManager.refreshEnvironment()
         this.refreshGates() // Tự động dời cổng đi theo sự mở rộng của Shop
+        this.refreshAStarGrid() // Cập nhật lại lưới sau khi mở rộng
       }
+    })
+
+    // Theo dõi thay đổi nội thất để cập nhật Obstacle Grid
+    const unsubFurniture = useFurnitureStore().$subscribe(() => {
+      this.refreshAStarGrid()
     })
 
     // Theo dõi thay đổi nhân sự (Thuê/Sa thải nhân viên)
@@ -469,7 +481,7 @@ export default class MainScene extends Phaser.Scene {
     })
 
     // CHỐT: Thu thập tất cả các hàm hủy đăng ký để dọn dẹp khi scene shutdown
-    this.storeUnsubscribers.push(unsubStats, unsubStaff, unsubCustomer, unsubGame)
+    this.storeUnsubscribers.push(unsubStats, unsubStaff, unsubCustomer, unsubGame, unsubFurniture)
   }
 
   /**
@@ -601,6 +613,41 @@ export default class MainScene extends Phaser.Scene {
     const hPathY = doorPos.y + 80 // Giữa sidewalk
     const hPathH = 30
     this.gatePathway.fillRect(doorPos.x, hPathY, wz.x - doorPos.x + 20, hPathH)
+  }
+
+  /** Làm mới toàn bộ lưới vật cả A* dựa trên Physics Body của Furniture */
+  public refreshAStarGrid() {
+    if (!this.furnitureManager) return
+    
+    // 1. Re-init grid với kích thước Shop hiện tại (trường hợp mới mở rộng)
+    const bounds = this.environmentManager.getShopBounds()
+    aStarGrid.initialize(bounds.x, bounds.y, bounds.w, bounds.h)
+
+    // 2. Reset lưới (đã được done trong initialize nhưng làm cho chắc)
+    aStarGrid.clearObstacles()
+
+    // 2. Mark obstacles từ Shelves
+    this.furnitureManager.shelvesGroup.getChildren().forEach(child => {
+      const body = child.body as Phaser.Physics.Arcade.StaticBody
+      if (body) aStarGrid.markObstacleFromBody(body)
+    })
+
+    // 3. Mark obstacles từ Tables
+    this.furnitureManager.tablesGroup.getChildren().forEach(child => {
+      const body = child.body as Phaser.Physics.Arcade.StaticBody
+      if (body) aStarGrid.markObstacleFromBody(body)
+    })
+
+    // 4. Mark obstacles từ Cashiers
+    this.furnitureManager.cashierGroup.getChildren().forEach(child => {
+      const body = child.body as Phaser.Physics.Arcade.StaticBody
+      if (body) aStarGrid.markObstacleFromBody(body)
+    })
+
+    // 5. (Tùy chọn) Vẽ debug nếu đang bật showDebugPhysics
+    if (this.debugGraphic && useStatsStore().settings.showDebugPhysics) {
+      aStarGrid.debugDraw(this.debugGraphic)
+    }
   }
 
   /** Hiển thị hint [E] khi đứng gần cổng dịch chuyển */
