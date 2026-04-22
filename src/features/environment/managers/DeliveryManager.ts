@@ -412,11 +412,17 @@ export class DeliveryManager {
     this.boxes.splice(idx, 1)
   }
 
+  private lastSyncData: string = ''
+
   private syncToStore() {
     const deliveryStore = useDeliveryStore()
-    // Chỉ sync 1 lần 1 lúc hoặc khi có thay đổi. 
-    // Cho đơn giản, sync mỗi update (100ms) là đủ.
-    deliveryStore.activeBoxes = this.getSerializableBoxes()
+    const currentData = JSON.stringify(this.getSerializableBoxes())
+    
+    // Only sync if data changed to prevent massive auto-save overhead
+    if (this.lastSyncData !== currentData) {
+      deliveryStore.activeBoxes = JSON.parse(currentData)
+      this.lastSyncData = currentData
+    }
   }
 
   // === PERSISTENCE ===
@@ -427,10 +433,11 @@ export class DeliveryManager {
       name: b.name,
       type: b.type,
       quantity: b.quantity,
-      x: b.sprite.x,
-      y: b.sprite.y
+      x: Math.round(b.sprite.x), 
+      y: Math.round(b.sprite.y)
     }))
   }
+
 
   public restoreBox(data: any) {
     this.spawnBox(data, data.x, data.y)

@@ -34,6 +34,7 @@ export interface IStaffAgent {
   sync(duty: WorkerDuty, deskId?: string | null): void
   update(time: number, delta: number): void
   updateStatus(text: string): void
+  dropAnything(): void
 }
 
 export class StaffAgent implements IStaffAgent {
@@ -72,14 +73,19 @@ export class StaffAgent implements IStaffAgent {
     this.fsm.addState(new RestockerMoveToBoxState())
     this.fsm.addState(new RestockerMoveToShelfState())
     this.fsm.addState(new RestockerWorkingState())
+    this.fsm.addState(new RestockerReturnBoxState())
 
     this.fsm.transition('RESTING')
   }
 
   sync(duty: WorkerDuty, deskId?: string | null) {
-    if (this.duty !== duty) {
+    const isDutyChanged = this.duty !== duty
+    const isDeskChanged = this.targetDeskId !== deskId
+
+    if (isDutyChanged || (duty === 'CHECKOUT' && isDeskChanged)) {
       this.duty = duty
       this.targetDeskId = deskId
+      
       if (duty === 'CHECKOUT') this.fsm.transition('CASHIER_WORKING')
       else if (duty === 'RESTOCK') this.fsm.transition('RESTOCKER_IDLE')
       else this.fsm.transition('RESTING')
@@ -87,6 +93,7 @@ export class StaffAgent implements IStaffAgent {
       this.targetDeskId = deskId
     }
   }
+
 
   update(time: number, delta: number) {
     this.fsm.update(time, delta)
@@ -97,6 +104,14 @@ export class StaffAgent implements IStaffAgent {
 
   updateStatus(text: string) {
     this.statusText.setText(text)
+  }
+
+  dropAnything() {
+    if (this.carriedBoxId) {
+      const dm = (this.scene as any).deliveryManager
+      dm.staffDropBox(this.carriedBoxId, this.sprite.x, this.sprite.y)
+      this.carriedBoxId = null
+    }
   }
 
   destroy() {
@@ -112,6 +127,10 @@ export class StaffAgent implements IStaffAgent {
 class StaffRestingState implements IState<IStaffAgent> {
   name = 'RESTING'
   onEnter(agent: IStaffAgent) {
+    if (agent.carriedBoxId) {
+      agent.fsm.transition('RESTOCKER_RETURN_BOX')
+      return
+    }
     agent.updateStatus('Resting')
     const idleZone = (agent.scene as any).environmentManager.idleStaffZone
     agent.locomotion.moveTo(idleZone.x, idleZone.y)
@@ -234,7 +253,9 @@ class RestockerWorkingState implements IState<IStaffAgent> {
 
     if (time > this.actionTimer) {
       const furnitureStore = useFurnitureStore()
-      const dm = (agent.scene as any).deliveryManager
+      const dm = (agent.scene as any).staffManager?.deliveryManager
+      if (!dm) return
+
       const box = dm.getBoxById(agent.carriedBoxId!)
 
       if (!box || box.quantity <= 0) {
@@ -269,7 +290,9 @@ class RestockerWorkingState implements IState<IStaffAgent> {
 
   private searchNextShelf(agent: IStaffAgent) {
     const furnitureStore = useFurnitureStore()
-    const dm = (agent.scene as any).deliveryManager
+    const dm = (agent.scene as any).staffManager?.deliveryManager
+    if (!dm) return
+    
     const box = dm.getBoxById(agent.carriedBoxId!)
     if (!box) { agent.fsm.transition('RESTOCKER_IDLE'); return; }
 
@@ -290,24 +313,38 @@ class RestockerWorkingState implements IState<IStaffAgent> {
     }
 
     if (!found) {
-       // Không tìm thấy kệ -> Trả thùng về zones
-       const env = (agent.scene as any).environmentManager
-       const dz = env.deliveryZone
-       agent.locomotion.moveTo(dz.x, dz.y)
-       // Đặt fake state để chờ tới nơi
-       agent.updateStatus('Restock: Returning box')
-       agent.scene.time.addEvent({
-          delay: 100,
-          callback: () => {
-             const dist = Phaser.Math.Distance.Between(agent.sprite.x, agent.sprite.y, dz.x, dz.y)
-             if (dist < 20) {
-                dm.staffDropBox(agent.carriedBoxId!, agent.sprite.x, agent.sprite.y)
-                agent.carriedBoxId = null
-                agent.fsm.transition('RESTOCKER_IDLE')
-             }
-          },
-          loop: true
-       })
+       agent.fsm.transition('RESTOCKER_RETURN_BOX')
+    }
+  }
+  onExit() {}
+}
+
+class RestockerReturnBoxState implements IState<IStaffAgent> {
+  name = 'RESTOCKER_RETURN_BOX'
+  onEnter(agent: IStaffAgent) {
+    agent.updateStatus('Restock: Returning box')
+    const env = (agent.scene as any).environmentManager
+    const dz = env.deliveryZone
+    agent.locomotion.moveTo(dz.x, dz.y)
+  }
+  onUpdate(agent: IStaffAgent) {
+    if (agent.carriedBoxId) {
+       const dm = (agent.scene as any).deliveryManager
+       dm.updateStaffCarryPosition(agent.carriedBoxId, agent.sprite.x, agent.sprite.y)
+    }
+
+    const env = (agent.scene as any).environmentManager
+    const dz = env.deliveryZone
+    const dist = Phaser.Math.Distance.Between(agent.sprite.x, agent.sprite.y, dz.x, dz.y)
+    
+    // Nếu tới bãi nhận hàng hoặc locomotion dừng (mắc kẹt)
+    if (dist < 30 || !agent.locomotion.isMoving) {
+       agent.dropAnything()
+       
+       // Quay về state gốc sau khi drop
+       if (agent.duty === 'RESTOCK') agent.fsm.transition('RESTOCKER_IDLE')
+       else if (agent.duty === 'CHECKOUT') agent.fsm.transition('CASHIER_WORKING')
+       else agent.fsm.transition('RESTING')
     }
   }
   onExit() {}
@@ -317,11 +354,13 @@ class RestockerWorkingState implements IState<IStaffAgent> {
 export class StaffManager {
   private scene: Phaser.Scene
   private environmentManager: EnvironmentManager
+  public deliveryManager: DeliveryManager
   private agents: Map<string, StaffAgent> = new Map()
 
-  constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager, _deliveryManager: DeliveryManager) {
+  constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager, deliveryManager: DeliveryManager) {
     this.scene = scene
     this.environmentManager = environmentManager
+    this.deliveryManager = deliveryManager
   }
 
   public syncWorkers() {
@@ -341,6 +380,8 @@ export class StaffManager {
       let agent = this.agents.get(w.instanceId)
       if (!agent) {
         const spawnLoc = this.environmentManager.idleStaffZone
+        if (!spawnLoc) return // Chờ EnvironmentManager sẵn sàng
+
         const pool = AppConfig.ASSETS.STAFF_POOLS
         const texture = pool[Math.floor(Math.random() * pool.length)].key
         const sprite = this.scene.physics.add.sprite(spawnLoc.x, spawnLoc.y, texture, 0)

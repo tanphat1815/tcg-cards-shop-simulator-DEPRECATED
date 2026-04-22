@@ -27,11 +27,22 @@ export class NPCLocomotion {
    * Di chuyển tới mục tiêu world space dùng A*
    */
   moveTo(targetX: number, targetY: number, speed: number = 100) {
+    if (!this.sprite || !this.sprite.active) return false
     this.speed = speed
+
+    // Safety: Nếu đã ở rất gần mục tiêu (dưới 4px) thì snáp luôn để tránh loop A*
+    const distTotal = Phaser.Math.Distance.Between(this.sprite.x, this.sprite.y, targetX, targetY)
+    if (distTotal < 4) {
+      this.sprite.setPosition(targetX, targetY)
+      this.stop()
+      return true
+    }
+
     const newPath = aStarGrid.findPath(
       { x: this.sprite.x, y: this.sprite.y },
       { x: targetX, y: targetY }
     )
+
 
     if (!newPath || newPath.length === 0) {
       this.stop()

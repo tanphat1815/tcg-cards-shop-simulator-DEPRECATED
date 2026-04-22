@@ -31,6 +31,7 @@ import { useInventoryStore } from './features/inventory/store/inventoryStore'
 import { useFurnitureStore } from './features/furniture/store/furnitureStore'
 import { useCustomerStore } from './features/customer/store/customerStore'
 import { useDeliveryStore } from './features/inventory/store/deliveryStore'
+import { useStaffStore } from './features/staff/store/staffStore'
 import { usePlayerHandStore } from './features/inventory/store/playerHandStore'
 import { useTradeInStore } from './features/inventory/store/tradeInStore'
 import { eventBus, EVENTS } from './features/shared/EventBus'
@@ -41,6 +42,7 @@ const inventoryStore = useInventoryStore()
 const furnitureStore = useFurnitureStore()
 const customerStore = useCustomerStore()
 const deliveryStore = useDeliveryStore()
+const staffStore = useStaffStore()
 const playerHandStore = usePlayerHandStore()
 const tradeInStore = useTradeInStore()
 const gradingStore = useGradingStore()
@@ -51,10 +53,17 @@ const uiStore = useUIStore()
 onMounted(() => {
   store.loadSave()
   
-  // Subscribe vào TẤT CẢ store con để auto-save
+  // Subscribe vào TẤT CẢ store con để auto-save (có giới hạn tần suất - throttle)
+  let lastSaveTime = 0
+  const SAVE_THROTTLE_MS = 2000
+
   const saveCallback = () => {
      if (AppConfig.GAME.SETTINGS.AUTO_SAVE) {
-        store.saveGame()
+        const now = Date.now()
+        if (now - lastSaveTime > SAVE_THROTTLE_MS) {
+           store.saveGame()
+           lastSaveTime = now
+        }
      }
   }
 
@@ -63,10 +72,12 @@ onMounted(() => {
   furnitureStore.$subscribe(saveCallback, { deep: true })
   customerStore.$subscribe(saveCallback, { deep: true })
   deliveryStore.$subscribe(saveCallback, { deep: true })
+  staffStore.$subscribe(saveCallback, { deep: true })
   playerHandStore.$subscribe(saveCallback, { deep: true })
   tradeInStore.$subscribe(saveCallback, { deep: true })
   gradingStore.$subscribe(saveCallback, { deep: true })
   eventStore.$subscribe(saveCallback, { deep: true })
+
 
   // Lắng nghe sự kiện từ NPC AI (Phaser -> Vue)
   eventBus.on(EVENTS.NPC_TRADE_REQUEST, ({ instanceId, cardId }) => {
