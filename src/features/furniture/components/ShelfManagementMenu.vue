@@ -1,57 +1,92 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { useApiStore } from '../../inventory/store/apiStore'
+import { useDeliveryStore } from '../../inventory/store/deliveryStore'
+import { useFurnitureStore } from '../../furniture/store/furnitureStore'
+import { usePlayerPocketStore } from '../../inventory/store/playerPocketStore'
+import { getPackVisuals, getBoxVisuals } from '../../inventory/config/assetRegistry'
 import TcgCard from '../../shared/components/TcgCard.vue'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
-import { useDeliveryStore } from '../../inventory/store/deliveryStore'
-import { usePlayerHandStore, type HandItemType } from '../../inventory/store/playerHandStore'
-import { getPackVisuals, getBoxVisuals } from '../../inventory/config/assetRegistry'
 
 const gameStore = useGameStore()
 const inventoryStore = useInventoryStore()
 const deliveryStore = useDeliveryStore()
-const handStore = usePlayerHandStore()
+const pocketStore = usePlayerPocketStore()
 const apiStore = useApiStore()
 
-/** ID của item đang được chọn để xếp lên kệ */
-const selectedItemId = ref<string | null>(null)
-/** Đánh dấu xem có đang chọn item 'đang cầm trên tay' không */
-const isSelectedFromHand = ref(false)
+// ── activeSelection: item đang được chọn để đặt lên kệ ──
+interface ActiveSelection {
+  itemId: string
+  source: 'pocket' | 'shopInventory'
+  quantity: number
+}
 
-/**
- * Tự động chọn item đang cầm trên tay nếu có khi mở menu.
- */
-onMounted(() => {
-  if (handStore.item) {
-    selectedItemId.value = handStore.item.itemId
-    isSelectedFromHand.value = true
+const activeSelection = ref<ActiveSelection | null>(null)
+
+// Nguồn hàng từ Pocket (lọc bỏ loại không phù hợp với role kệ)
+const pocketItems = computed(() =>
+  pocketStore.pocketList.filter(entry => {
+    if (activeShelf.value?.role === 'display_case') return false
+    return entry.type === 'pack' || entry.type === 'box'
+  })
+)
+
+// Helper: lấy URL ảnh cho item
+function getItemImageUrl(itemId: string, type: 'pack' | 'box', sourceSetId?: string): string {
+  try {
+    // Luôn ưu tiên dùng sourceSetId nếu có để lấy đúng ảnh gốc
+    const setId = sourceSetId || itemId;
+    return type === 'pack'
+      ? getPackVisuals(setId).front
+      : getBoxVisuals(setId).front
+  } catch (e) {
+    console.warn('[ShelfMenu] Image fail:', itemId)
+    return ''
   }
-})
+}
+
+function getItemType(itemId: string | null): 'pack' | 'box' | null {
+  if (!itemId) return null
+  const shopItem = inventoryStore.shopItems[itemId]
+  if (shopItem) return shopItem.type as any
+  if (itemId.startsWith('pack_')) return 'pack'
+  if (itemId.startsWith('box_')) return 'box'
+  return null
+}
+
+function selectFromPocket(itemId: string) {
+  const entry = pocketStore.pocket[itemId]
+  if (!entry) return
+  activeSelection.value = {
+    itemId,
+    source: 'pocket',
+    quantity: entry.quantity,
+  }
+}
+
+function selectFromInventory(id: string) {
+  activeSelection.value = {
+    itemId: id,
+    source: 'shopInventory',
+    quantity: inventoryStore.shopInventory[id] ?? 0,
+  }
+}
 
 /**
  * Danh sách item trong kho inventory.
  */
 const inventoryItems = computed(() => {
   const shelf = activeShelf.value
-  if (shelf?.role === 'display_case') {
-    return Object.keys(inventoryStore.personalBinder)
-      .map(cardId => ({
-        id: cardId,
-        item: apiStore.flatCardMap[cardId],
-        quantity: inventoryStore.personalBinder[cardId],
-        isCard: true
-      }))
-      .filter(x => x.item !== undefined && x.quantity > 0)
-  }
+  if (shelf?.role !== 'display_case') return []
 
-  return Object.keys(inventoryStore.shopInventory)
-    .map(itemId => ({
-      id: itemId,
-      item: inventoryStore.shopItems[itemId],
-      quantity: inventoryStore.shopInventory[itemId],
-      isCard: false
+  return Object.keys(inventoryStore.personalBinder)
+    .map(cardId => ({
+      id: cardId,
+      item: apiStore.flatCardMap[cardId],
+      quantity: inventoryStore.personalBinder[cardId],
+      isCard: true
     }))
     .filter(x => x.item !== undefined && x.quantity > 0)
 })
@@ -62,94 +97,76 @@ const activeShelf = computed(() => {
   return gameStore.placedShelves[shelfId]
 })
 
-const selectItemFromInventory = (id: string) => { 
-  selectedItemId.value = id 
-  isSelectedFromHand.value = false
-}
+// Đặt hàng lên tầng kệ — logic thống nhất
+function placeOnTier(tierIndex: number) {
+  if (!activeSelection.value || !activeShelf.value) return
 
-const selectItemFromHand = () => {
-  if (handStore.item) {
-    selectedItemId.value = handStore.item.itemId
-    isSelectedFromHand.value = true
+  const { itemId, source } = activeSelection.value
+  const shelf = activeShelf.value
+
+  if (source === 'pocket') {
+    const tier = shelf.tiers[tierIndex]
+    
+    // Safety check compatible itemId
+    if (tier.itemId !== null && tier.itemId !== itemId) return
+    if (tier.slots.length >= tier.maxSlots && tier.itemId !== null) return
+
+    const taken = pocketStore.removeFromPocket(itemId, 1)
+    if (taken <= 0) return
+
+    useFurnitureStore().fillTierFromHand(shelf.id, itemId, tierIndex, taken)
+
+    const remaining = pocketStore.pocket[itemId]?.quantity ?? 0
+    if (remaining <= 0) {
+      activeSelection.value = null
+    } else {
+      activeSelection.value = { ...activeSelection.value, quantity: remaining }
+    }
+
+    const shopItem = inventoryStore.shopItems[itemId]
+    if (shelf.role === 'selling' && (!shopItem || (shopItem.sellPrice ?? 0) <= 0)) {
+      openPriceEditor(itemId, tierIndex)
+    }
+
+  } else {
+    // Source: shopInventory — logic cũ
+    gameStore.moveToTierSlot(itemId, tierIndex)
+
+    const shopItem = inventoryStore.shopItems[itemId]
+    if (shopItem && shelf.role === 'selling' && (shopItem.sellPrice ?? 0) <= 0) {
+      openPriceEditor(itemId, tierIndex)
+    }
+
+    const remaining = inventoryStore.shopInventory[itemId] ?? 0
+    if (remaining <= 0) activeSelection.value = null
   }
 }
 
 /**
  * Xử lý click vào tầng để xếp hàng.
  */
-const handleTierClick = (tierIndex: number, event: MouseEvent) => {
+const handleTierClick = (tierIndex: number) => {
   const shelf = activeShelf.value
   if (!shelf) return
 
-  // Logic riêng cho Display Case
-  if (shelf.role === 'display_case') {
-    // Chỉ xử lý click vào slot cụ thể nếu có selection
-    return // Display case cần xử lý click vào SLOT, không phải Tier chung (ở template sẽ truyền slotIndex)
-  }
+  if (shelf.role === 'display_case') return
 
-  if (!selectedItemId.value) return
-
-  const shopItem = inventoryStore.shopItems[selectedItemId.value]
-
-  // TRƯỜNG HỢP 1: Xếp hàng từ thùng đang cầm trên tay
-  if (isSelectedFromHand.value && handStore.item) {
-    const handItem = handStore.item
-    
-    // Thực hiện nạp hàng trực tiếp vào tier của kệ
-    const placed = gameStore.fillTierFromHand(shelf.id, handItem.itemId, tierIndex, handItem.quantity)
-    
-    if (placed > 0) {
-      handStore.putDown(placed)
-      
-      // Mở popup định giá (chỉ cho kệ bán và CHỈ KHI chưa có giá đã set)
-      if (shelf.role !== 'storage' && (shopItem?.sellPrice || 0) <= 0) {
-        openPriceEditor(handItem.itemId, tierIndex)
-      }
-    }
-    
-    // Reset lựa chọn sau khi xếp xong
-    if (handStore.isEmpty) {
-      selectedItemId.value = null
-      isSelectedFromHand.value = false
-    }
+  if (activeSelection.value) {
+    placeOnTier(tierIndex)
     return
   }
-
-  // TRƯỜNG HỢP 2: Xếp hàng từ Inventory shop thông thường (Shift + Click để xếp đầy)
-  if (event.shiftKey) {
-    // Chúng ta vẫn có thể dùng moveToTierSlot lặp lại hoặc khôi phục fillTier
-    // Ở đây tôi sẽ dùng moveToTierSlot cho đơn giản hoặc khôi phục fillTier trong gameStore
-    gameStore.moveToTierSlot(selectedItemId.value, tierIndex) 
-  } else {
-    gameStore.moveToTierSlot(selectedItemId.value, tierIndex)
-  }
-
-  // Trigger SetPriceModal (chỉ cho kệ bán và CHỈ KHI chưa có giá đã set)
-  if (shopItem && shelf && shelf.role !== 'storage' && (shopItem.sellPrice || 0) <= 0) {
-    openPriceEditor(selectedItemId.value, tierIndex)
-  }
-
-  // Hết hàng trong kho thì bỏ chọn
-  if (isSelectedFromHand) {
-     if (handStore.isEmpty) {
-        selectedItemId.value = null
-        isSelectedFromHand.value = false
-     }
-  } else if (!inventoryStore.shopInventory[selectedItemId.value]) {
-    selectedItemId.value = null
-  }
+  // Không có selection → không làm gì
 }
 
 /**
  * Xử lý click vào SLOT cụ thể trên Display Case.
  */
 const handleDisplaySlotClick = (tierIndex: number, slotIndex: number) => {
-   if (!selectedItemId.value || !activeShelf.value) return
+   if (!activeSelection.value || !activeShelf.value) return
    const shelf = activeShelf.value
    if (shelf.role !== 'display_case') return
 
-   // Mặc định giá là Market Price * 1.2
-   const card = apiStore.flatCardMap[selectedItemId.value]
+   const card = apiStore.flatCardMap[activeSelection.value.itemId]
    const market = card?.pricing?.tcgplayer?.normal?.marketPrice || 10
    const defaultPrice = Math.round(market * 1.2 * 100) / 100
 
@@ -157,17 +174,15 @@ const handleDisplaySlotClick = (tierIndex: number, slotIndex: number) => {
       shelf.id,
       tierIndex,
       slotIndex,
-      selectedItemId.value,
+      activeSelection.value.itemId,
       defaultPrice
    )
 
    if (success) {
-      // Mở ngay price editor để người chơi điều chỉnh nếu muốn
-      openCardPriceEditor(selectedItemId.value, tierIndex, slotIndex)
+      openCardPriceEditor(activeSelection.value.itemId, tierIndex, slotIndex)
       
-      // Hết hàng trong binder thì bỏ chọn
-      if (!inventoryStore.personalBinder[selectedItemId.value]) {
-         selectedItemId.value = null
+      if (!inventoryStore.personalBinder[activeSelection.value.itemId]) {
+         activeSelection.value = null
       }
    }
 }
@@ -189,14 +204,14 @@ const openCardPriceEditor = (cardId: string, tierIndex: number, slotIndex: numbe
   deliveryStore.openSetPrice({
     shelfId: shelf.id,
     tierIndex: tierIndex,
-    slotIndex: slotIndex, // Thêm field mới
+    slotIndex: slotIndex,
     itemId: cardId,
     name: card.name,
     imageUrl: card.images?.small || '',
     currentPrice: currentPrice,
     marketPrice: marketPrice,
-    buyPrice: marketPrice * 0.7, // Giả định Player thu mua ở mức 70% market
-    isSingleCard: true // Flag cho modal
+    buyPrice: marketPrice * 0.7,
+    isSingleCard: true
   })
 }
 
@@ -219,7 +234,7 @@ const openPriceEditor = (itemId: string, tierIndex: number) => {
       ? getPackVisuals(shopItem.sourceSetId ?? itemId).front
       : getBoxVisuals(shopItem.sourceSetId ?? itemId).front,
     currentPrice: shopItem.sellPrice,
-    marketPrice: shopItem.sellPrice || shopItem.buyPrice * 1.6, // Fallback if no price set
+    marketPrice: shopItem.sellPrice || shopItem.buyPrice * 1.6,
     buyPrice: shopItem.buyPrice,
   })
 }
@@ -234,25 +249,24 @@ const handleTierRightClick = (tierIndex: number) => {
   const itemData = inventoryStore.shopItems[tier.itemId]
   if (!itemData) return
 
-  const isBox = itemData.type === 'box'
-  const currentHandQty = handStore.item?.quantity || 0
-  const canTakeMore = isBox ? (handStore.isEmpty ? 1 : 0) : (8 - currentHandQty)
-  const actualTake = Math.min(canTakeMore, tier.slots.length)
-  
-  if (actualTake <= 0) return
+  // Lấy 1 đơn vị từ kệ → đưa vào Pocket
+  const taken = gameStore.takeItemFromTierSimple(shelf.id, tierIndex)
+  if (!taken) return
 
-  // Rút từ kệ từng món
-  for (let i = 0; i < actualTake; i++) {
-    gameStore.takeItemFromTierSimple(shelf.id, tierIndex)
-  }
-
-  // Đặt vào tay
-  handStore.pickup({
+  pocketStore.addToPocket({
     itemId: tier.itemId,
     name: itemData.name,
-    type: itemData.type as HandItemType,
-    quantity: actualTake
+    type: itemData.type as 'pack' | 'box',
+    quantity: 1,
+    sourceSetId: itemData.sourceSetId,
   })
+
+  // Auto-select item vừa lấy
+  activeSelection.value = {
+    itemId: tier.itemId,
+    source: 'pocket',
+    quantity: pocketStore.pocket[tier.itemId]?.quantity ?? 1,
+  }
 }
 
 const handleSlotRightClick = (tierIndex: number, slotIndex: number) => {
@@ -263,11 +277,9 @@ const handleSlotRightClick = (tierIndex: number, slotIndex: number) => {
   const cardId = tier.slots[slotIndex]
   if (!cardId) return
 
-  // Trả về binder
   if (!inventoryStore.personalBinder[cardId]) inventoryStore.personalBinder[cardId] = 0
   inventoryStore.personalBinder[cardId]++
 
-  // Xóa khỏi slot
   tier.slots[slotIndex] = null
   if (tier.customPriceMap) delete tier.customPriceMap[cardId]
   if (tier.slots.every(s => s === null)) tier.itemId = null
@@ -279,12 +291,12 @@ const clearTier = (tierIndex: number) => {
   gameStore.clearTier(shelfId, tierIndex)
 }
 
-const canPlaceInTier = (tierIndex: number) => {
-  if (!selectedItemId.value || !activeShelf.value) return false
-  if (activeShelf.value.role === 'display_case') return true // Có thể đặt vào bất cứ tầng nào nếu còn slot
+const canPlaceInTier = (tierIndex: number): boolean => {
+  if (!activeSelection.value || !activeShelf.value) return false
+  if (activeShelf.value.role === 'display_case') return true
   const tier = activeShelf.value.tiers[tierIndex]
   if (tier.itemId === null) return true
-  if (tier.itemId === selectedItemId.value) return tier.slots.length < tier.maxSlots
+  if (tier.itemId === activeSelection.value.itemId) return tier.slots.length < tier.maxSlots
   return false
 }
 
@@ -323,7 +335,7 @@ const tierFillPct = (tierIndex: number): number => {
             size="sm"
             @click="gameStore.clearEntireShelf()"
           >
-            Rút tất cả về Kho
+            Rút tất cả vào Túi
           </EnhancedButton>
           <EnhancedButton
             variant="icon"
@@ -337,94 +349,96 @@ const tierFillPct = (tierIndex: number): number => {
 
       <div class="flex-grow flex overflow-hidden min-h-0">
 
-        <!-- Left: Inventory & Carried Boxes -->
-        <div class="w-[240px] shrink-0 border-r border-gray-700 bg-gray-900/50 p-4 flex flex-col relative">
-          
-          <!-- SECTION 1: ĐANG CẦM (CARRYING) -->
-          <div v-if="handStore.item" class="mb-6">
-            <h3 class="text-sm font-bold text-indigo-400 mb-3 pb-2 border-b border-indigo-500/30 uppercase tracking-wider flex items-center gap-2">
-              <span class="animate-pulse">🙌</span> Đang cầm
-            </h3>
-            <div
-              @click="selectItemFromHand"
-              class="group relative flex flex-col p-3 rounded-xl border-2 cursor-pointer transition-all overflow-hidden"
-              :class="isSelectedFromHand 
-                ? 'bg-indigo-600/20 border-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.5)]' 
-                : 'bg-gray-800 border-gray-700 hover:border-indigo-500/50'"
-            >
-              <div class="flex justify-between items-start mb-1">
-                <span class="font-black text-[13px] text-white truncate pr-2">
-                  {{ handStore.item.name }}
-                </span>
-                <span class="bg-indigo-500 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">
-                  x{{ handStore.item.quantity }}
-                </span>
-              </div>
-              <span class="text-[10px] text-indigo-300 font-medium uppercase">
-                {{ handStore.item.type === 'pack' ? '🎁 Booster Pack' : handStore.item.type === 'box' ? '📦 Thùng hàng' : '🃏 Card' }}
-              </span>
+        <!-- Left: Pocket + Inventory -->
+        <div class="w-[260px] shrink-0 border-r border-gray-700 bg-gray-900/50 p-4 flex flex-col relative">
 
-              <!-- Selection Indicator -->
-              <div v-if="isSelectedFromHand" class="absolute top-1 right-1">
-                <span class="flex h-2 w-2">
-                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                  <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                </span>
+          <!-- SECTION 1: POCKET (túi cá nhân) -->
+          <div v-if="pocketItems.length > 0" class="flex-1 flex flex-col min-h-0 mb-4">
+            <h3 class="text-sm font-bold text-yellow-400 mb-2 pb-2 border-b border-yellow-500/30 uppercase tracking-wider flex items-center gap-2">
+              🎒 Túi Ba Lô ({{ pocketItems.length }})
+            </h3>
+            <div class="space-y-2 overflow-y-auto pr-1 flex-grow custom-scroll">
+              <div
+                v-for="entry in pocketItems"
+                :key="entry.itemId"
+                @click="selectFromPocket(entry.itemId)"
+                class="group relative flex items-center gap-3 p-2.5 rounded-xl border-2 cursor-pointer transition-all overflow-hidden"
+                :class="activeSelection?.itemId === entry.itemId && activeSelection?.source === 'pocket'
+                  ? 'bg-yellow-600/20 border-yellow-400 shadow-[0_0_12px_rgba(234,179,8,0.4)]'
+                  : 'bg-gray-800 border-gray-700 hover:border-yellow-500/40'"
+              >
+                <!-- Ảnh nhỏ -->
+                <div class="w-10 h-14 flex-shrink-0 rounded overflow-hidden bg-slate-900 border border-slate-700">
+                  <img
+                    :src="getItemImageUrl(entry.itemId, entry.type, entry.sourceSetId)"
+                    class="w-full h-full object-contain"
+                    @error="(e) => (e.target as HTMLImageElement).style.display = 'none'"
+                  />
+                </div>
+                <div class="flex flex-col min-w-0 flex-grow">
+                  <span class="font-bold text-[12px] text-gray-100 truncate">{{ entry.name }}</span>
+                  <span class="text-[10px] text-yellow-400 font-medium uppercase">{{ entry.type }}</span>
+                </div>
+                <div class="bg-yellow-900/50 text-yellow-300 px-2 py-0.5 rounded text-xs font-mono border border-yellow-700 ml-auto shrink-0">
+                  x{{ entry.quantity }}
+                </div>
               </div>
             </div>
-            <p v-if="isSelectedFromHand" class="mt-2 text-[10px] text-center text-indigo-300 italic">
-               Click chuột vào Tầng để xếp hàng ngay
+            <p v-if="activeSelection?.source === 'pocket'" class="mt-2 text-[10px] text-center text-yellow-300 italic">
+              Click vào Tầng để xếp hàng
             </p>
           </div>
 
-          <!-- SECTION 2: SHOP INVENTORY / PERSONAL BINDER -->
-          <h3 class="text-sm font-bold text-gray-200 mb-3 pb-2 border-b border-gray-700 uppercase tracking-wider">
-             {{ activeShelf.role === 'display_case' ? '🗂️ Personal Binder' : '📦 Kho hàng Shop' }}
-          </h3>
+          <!-- SECTION 2: PERSONAL BINDER (Hiện ra nếu là Display Case) -->
+          <template v-if="activeShelf.role === 'display_case'">
+            <h3 class="text-sm font-bold text-indigo-300 mb-3 pb-2 border-b border-indigo-500/30 uppercase tracking-wider flex items-center gap-2">
+              🗂️ Bản thẻ Cá nhân
+            </h3>
 
-          <div v-if="inventoryItems.length === 0" class="text-center text-gray-500 italic mt-10 text-sm">
-            Kho đang trống.
-          </div>
-
-          <div v-else class="flex-grow overflow-y-auto pr-1 custom-scroll space-y-2">
-            <div
-                v-for="inv in inventoryItems" :key="inv.id"
-                @click="selectItemFromInventory(inv.id)"
-                class="flex justify-between items-center p-3 rounded-xl border-2 cursor-pointer transition-all"
-                :class="selectedItemId === inv.id && !isSelectedFromHand
-                  ? 'bg-emerald-900/40 border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                  : 'bg-gray-800/60 border-gray-700/40 hover:bg-gray-700'"
-              >
-                <div class="flex flex-col min-w-0" :class="{ 'flex-grow': inv.isCard }">
-                  <span class="font-bold text-[12px] text-gray-200 truncate">
-                    {{ inv.item?.name }}
-                  </span>
-                  <div class="flex items-center gap-1.5 mt-0.5">
-                    <span class="text-[9px] text-gray-500 uppercase">
-                      {{ inv.isCard ? (inv.item as any).rarity || 'Common' : (inv.item as any).type }}
-                    </span>
-                    <span v-if="inv.isCard" class="text-[9px] text-yellow-500/80 font-bold">
-                       ${{ (inv.item as any).pricing?.tcgplayer?.normal?.marketPrice?.toFixed(1) || '0.0' }}
-                    </span>
-                  </div>
-                </div>
-                <div class="bg-gray-950 text-emerald-400 px-2 py-0.5 rounded text-xs font-mono border border-gray-800 ml-2 shrink-0">
-                  x{{ inv.quantity }}
-                </div>
+            <div v-if="inventoryItems.length === 0" class="text-center text-gray-500 italic mt-10 text-sm">
+              Bạn không có thẻ bài nào trong Binder.<br/>Hãy mở Pack để thu thập thẻ.
             </div>
-          </div>
+
+            <div v-else class="flex-grow overflow-y-auto pr-1 custom-scroll space-y-2">
+              <div
+                  v-for="inv in inventoryItems" :key="inv.id"
+                  @click="selectFromInventory(inv.id)"
+                  class="flex justify-between items-center p-3 rounded-xl border-2 cursor-pointer transition-all"
+                  :class="activeSelection?.itemId === inv.id && activeSelection?.source === 'shopInventory'
+                    ? 'bg-indigo-900/40 border-indigo-500/60 shadow-[0_0_12px_rgba(99,102,241,0.3)]'
+                    : 'bg-gray-800/60 border-gray-700/40 hover:bg-gray-700'"
+                >
+                  <div class="flex flex-col min-w-0" :class="{ 'flex-grow': inv.isCard }">
+                    <span class="font-bold text-[12px] text-gray-200 truncate">
+                      {{ inv.item?.name }}
+                    </span>
+                    <div class="flex items-center gap-1.5 mt-0.5">
+                      <span class="text-[9px] text-gray-500 uppercase">
+                        {{ inv.isCard ? (inv.item as any).rarity || 'Common' : (inv.item as any).type }}
+                      </span>
+                      <span v-if="inv.isCard" class="text-[9px] text-yellow-500/80 font-bold">
+                         ${{ (inv.item as any).pricing?.tcgplayer?.normal?.marketPrice?.toFixed(1) || '0.0' }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="bg-gray-950 text-indigo-400 px-2 py-0.5 rounded text-xs font-mono border border-gray-800 ml-2 shrink-0">
+                    x{{ inv.quantity }}
+                  </div>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- Right: Shelf Tiers -->
         <div class="flex-grow p-6 flex flex-col gap-4 overflow-y-auto custom-scroll bg-gray-950/30">
-          <div class="flex justify-between items-center shrink-0">
+          <div v-if="activeShelf.role !== 'display_case'" class="flex justify-between items-center shrink-0">
              <p class="text-[11px] text-gray-400 italic">
               Thao tác: Click để Đặt hàng | Chuột phải để Lấy hàng | Click vào Giá để đổi giá.
             </p>
-            <div v-if="selectedItemId" class="flex items-center gap-2 bg-indigo-500/20 px-3 py-1 rounded-full border border-indigo-500/30">
+            <div v-if="activeSelection" class="flex items-center gap-2 bg-indigo-500/20 px-3 py-1 rounded-full border border-indigo-500/30">
                <span class="text-[10px] font-bold text-indigo-300 uppercase">Đang chọn:</span>
                <span class="text-[11px] text-white font-black truncate max-w-[150px]">
-                  {{ isSelectedFromHand ? handStore.item?.name : inventoryStore.shopItems[selectedItemId]?.name }}
+                  {{ activeSelection.source === 'pocket' ? pocketStore.pocket[activeSelection.itemId]?.name : inventoryStore.shopItems[activeSelection.itemId]?.name }}
                </span>
             </div>
           </div>
@@ -433,18 +447,18 @@ const tierFillPct = (tierIndex: number): number => {
           <div
             v-for="(tier, tierIdx) in activeShelf.tiers"
             :key="tierIdx"
-            class="rounded-xl border-2 overflow-hidden shrink-0 transition-all"
+            class="rounded-xl border-2 overflow-hidden shrink-0 transition-all cursor-pointer group"
             :class="{
-                'border-indigo-500 shadow-[0_0_25px_rgba(99,102,241,0.25)] scale-[1.01] bg-indigo-900/5': selectedItemId && canPlaceInTier(tierIdx),
-                'border-gray-700/50 bg-gray-900/50': !selectedItemId || !canPlaceInTier(tierIdx),
-                'border-red-900/50 opacity-80': selectedItemId && !canPlaceInTier(tierIdx) && tier.itemId !== null,
+                'border-indigo-500 shadow-[0_0_25px_rgba(99,102,241,0.25)] scale-[1.01] bg-indigo-900/5': activeSelection && canPlaceInTier(tierIdx),
+                'border-gray-700/50 bg-gray-900/50': !activeSelection || !canPlaceInTier(tierIdx),
+                'border-red-900/50 opacity-80': activeSelection && !canPlaceInTier(tierIdx) && tier.itemId !== null,
             }"
+            @click="handleTierClick(tierIdx)"
+            @contextmenu.prevent="handleTierRightClick(tierIdx)"
           >
             <!-- Tier Header -->
             <div
-              class="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 cursor-pointer group select-none"
-              @click="handleTierClick(tierIdx, $event)"
-              @contextmenu.prevent="handleTierRightClick(tierIdx)"
+              class="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700 select-none"
             >
               <div class="flex items-center gap-3">
                 <span class="text-xs font-black text-gray-500 uppercase tracking-widest">Tầng {{ tierIdx + 1 }}</span>
@@ -477,18 +491,19 @@ const tierFillPct = (tierIndex: number): number => {
                   </div>
                 </div>
 
-                <!-- Case: Display Case header -->
-                <div v-else-if="activeShelf.role === 'display_case'" class="flex items-center gap-2">
-                   <span class="text-[10px] text-indigo-400 font-bold italic">Tủ trưng bày Cards</span>
+                <div v-if="activeShelf.role === 'display_case'" class="flex items-center gap-2">
+                 <span class="text-[10px] text-indigo-400 font-bold italic">Tủ trưng bày Cards</span>
                 </div>
 
-                <span v-else class="text-xs text-gray-600 font-medium italic">[ Trống – Click để đặt hàng tại đây ]</span>
+                <div v-else-if="!tier.itemId" class="flex items-center gap-2">
+                  <span class="text-xs text-gray-600 font-medium italic">[ Trống – Click để đặt hàng tại đây ]</span>
+                </div>
               </div>
 
-                <div class="flex items-center gap-3">
-                  <span v-if="selectedItemId && activeShelf.role !== 'display_case' && canPlaceInTier(tierIdx)" class="text-[10px] text-indigo-400 font-black uppercase tracking-widest animate-pulse">
-                    Click: Đặt hàng
-                  </span>
+              <div class="flex items-center gap-3">
+                <span v-if="activeSelection && activeShelf.role !== 'display_case' && canPlaceInTier(tierIdx)" class="text-[10px] text-indigo-400 font-black uppercase tracking-widest animate-pulse">
+                  Click: Đặt hàng
+                </span>
                   <span v-if="tier.itemId && activeShelf.role !== 'display_case'" class="text-[10px] text-gray-500 font-bold uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">
                     Chuột phải: Lấy hàng
                   </span>
@@ -550,42 +565,59 @@ const tierFillPct = (tierIndex: number): number => {
                  </div>
               </div>
 
-              <!-- Pack Display -->
-              <div v-else-if="tier.itemId && inventoryStore.shopItems[tier.itemId]?.type === 'pack'"
-                class="grid gap-1.5"
+              <div v-else-if="tier.itemId && getItemType(tier.itemId) === 'pack'"
+                class="grid gap-2 py-2"
                 style="grid-template-columns: repeat(8, 1fr);"
               >
                 <div
                     v-for="n in tier.maxSlots"
                     :key="n"
-                    class="rounded-sm border-2 flex items-center justify-center transition-all duration-300"
+                    class="relative rounded-lg border-2 flex items-center justify-center transition-all duration-300 group/item overflow-hidden"
                     :class="n <= tier.slots.length
-                      ? 'bg-indigo-600 border-indigo-400 translate-y-[-2px] shadow-lg'
-                      : 'bg-gray-800/30 border-gray-800 border-dashed'"
-                    style="height: 30px;"
+                      ? 'bg-gray-800 border-indigo-500/50 shadow-[0_5px_15px_rgba(99,102,241,0.2)]'
+                      : 'bg-gray-900/40 border-gray-800 border-dashed'"
+                    style="height: 60px;"
                   >
-                    <div v-if="n <= tier.slots.length" class="w-full h-full flex flex-col justify-center items-center">
-                       <div class="w-3 h-1 bg-white/30 rounded-full mb-1"></div>
-                       <div class="w-3 h-1 bg-white/20 rounded-full"></div>
+                    <div v-if="n <= tier.slots.length" class="w-full h-full relative z-10">
+                        <img 
+                          :src="getItemImageUrl(tier.itemId, 'pack')" 
+                          class="w-full h-full object-contain"
+                          @error="(e: any) => e.target.style.opacity = '0'"
+                        />
+                        <!-- Fallback nếu ảnh lỗi -->
+                        <div class="absolute inset-0 flex items-center justify-center text-[10px] text-indigo-400 font-bold text-center p-1 bg-indigo-900/20 pointer-events-none opacity-0 group-hover/item:opacity-100 transition-opacity">
+                          {{ inventoryStore.shopItems[tier.itemId]?.name.split(' ')[0] }}
+                        </div>
                     </div>
+                    <div v-else class="text-gray-800 text-lg font-black opacity-20">+</div>
                 </div>
               </div>
 
               <!-- Box Display -->
-              <div v-else-if="tier.itemId && inventoryStore.shopItems[tier.itemId]?.type === 'box'"
-                class="grid grid-cols-4 gap-4"
+              <div v-else-if="tier.itemId && getItemType(tier.itemId) === 'box'"
+                class="grid grid-cols-4 gap-4 py-2"
               >
                 <div
                     v-for="n in tier.maxSlots"
                     :key="n"
-                    class="rounded-xl border-2 flex flex-col items-center justify-center py-3 transition-all duration-300"
+                    class="relative rounded-xl border-2 flex flex-col items-center justify-center p-2 transition-all duration-300 group/box overflow-hidden"
                     :class="n <= tier.slots.length
-                      ? 'bg-amber-900/30 border-amber-600/50 shadow-inner'
-                      : 'bg-gray-800/20 border-gray-700/20 border-dashed'"
-                    style="height: 100px;"
+                      ? 'bg-gray-800 border-amber-600/50 shadow-[0_8px_20px_rgba(217,119,6,0.15)]'
+                      : 'bg-gray-900/40 border-gray-700/20 border-dashed'"
+                    style="height: 120px;"
                   >
-                    <span v-if="n <= tier.slots.length" class="text-4xl drop-shadow-md">📦</span>
-                    <span v-else class="text-gray-800 text-2xl font-black">?</span>
+                    <div v-if="n <= tier.slots.length" class="w-full h-full relative z-10">
+                        <img 
+                          :src="getItemImageUrl(tier.itemId, 'box')" 
+                          class="w-full h-full object-contain"
+                          @error="(e: any) => e.target.style.opacity = '0'"
+                        />
+                        <!-- Fallback nếu ảnh lỗi -->
+                        <div class="absolute inset-0 flex items-center justify-center text-xs text-amber-500 font-black text-center p-2 bg-amber-900/20 pointer-events-none opacity-0 group-hover/box:opacity-100 transition-opacity">
+                          {{ inventoryStore.shopItems[tier.itemId]?.name }}
+                        </div>
+                    </div>
+                    <span v-else class="text-gray-800 text-2xl font-black opacity-20">?</span>
                 </div>
               </div>
             </div>

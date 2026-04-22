@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useCheckoutStore } from '../store/checkoutStore'
+import { useCustomerStore } from '../../customer/store/customerStore'
 import CashRegister from './CashRegister.vue'
 import CreditCardPOS from './CreditCardPOS.vue'
 
@@ -49,7 +50,6 @@ function playChaChingSound() {
 }
 
 const customerCount = computed(() => {
-  const { useCustomerStore } = require('../../customer/store/customerStore')
   return useCustomerStore().waitingCustomers
 })
 </script>

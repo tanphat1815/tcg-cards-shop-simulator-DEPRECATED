@@ -617,36 +617,74 @@ export default class MainScene extends Phaser.Scene {
 
   /** Làm mới toàn bộ lưới vật cả A* dựa trên Physics Body của Furniture */
   public refreshAStarGrid() {
-    if (!this.furnitureManager) return
-    
-    // 1. Re-init grid với kích thước Shop hiện tại (trường hợp mới mở rộng)
-    const bounds = this.environmentManager.getShopBounds()
-    aStarGrid.initialize(bounds.x, bounds.y, bounds.w, bounds.h)
+    if (!this.furnitureManager || !this.environmentManager) return
 
-    // 2. Reset lưới (đã được done trong initialize nhưng làm cho chắc)
-    aStarGrid.clearObstacles()
+    try {
+      // 1. Fetch và Validate Shop Bounds
+      const bounds = this.environmentManager.getShopBounds()
+      if (!bounds || isNaN(bounds.w) || isNaN(bounds.h) || bounds.w === 0) return
 
-    // 2. Mark obstacles từ Shelves
-    this.furnitureManager.shelvesGroup.getChildren().forEach(child => {
-      const body = child.body as Phaser.Physics.Arcade.StaticBody
-      if (body) aStarGrid.markObstacleFromBody(body)
-    })
+      // 2. Re-init grid
+      aStarGrid.initialize(bounds.x, bounds.y, bounds.w, bounds.h)
+      aStarGrid.clearObstacles()
 
-    // 3. Mark obstacles từ Tables
-    this.furnitureManager.tablesGroup.getChildren().forEach(child => {
-      const body = child.body as Phaser.Physics.Arcade.StaticBody
-      if (body) aStarGrid.markObstacleFromBody(body)
-    })
+      // 3. Mark obstacles từ Furniture Groups
+      const groups = [
+        this.furnitureManager.shelvesGroup,
+        this.furnitureManager.tablesGroup,
+        this.furnitureManager.cashierGroup
+      ]
+      
+      groups.forEach(group => {
+        if (!group) return
+        group.getChildren().forEach(child => {
+          const body = child.body as Phaser.Physics.Arcade.StaticBody
+          if (body) aStarGrid.markObstacleFromBody(body)
+        })
+      })
 
-    // 4. Mark obstacles từ Cashiers
-    this.furnitureManager.cashierGroup.getChildren().forEach(child => {
-      const body = child.body as Phaser.Physics.Arcade.StaticBody
-      if (body) aStarGrid.markObstacleFromBody(body)
-    })
+      // 4. Mark obstacles từ Walls
+      const { x: sx, y: sy, w: sw, h: sh } = bounds
+      const thickness = 64
+      const doorWidth = 80
+      const sideWallW = (sw - doorWidth) / 2
 
-    // 5. (Tùy chọn) Vẽ debug nếu đang bật showDebugPhysics
-    if (this.debugGraphic && useStatsStore().settings.showDebugPhysics) {
-      aStarGrid.debugDraw(this.debugGraphic)
+      // NORTH / WEST / EAST
+      aStarGrid.markObstacle(sx - thickness, sy - 96, sw + thickness * 2, 96)
+      aStarGrid.markObstacle(sx - thickness, sy - thickness, thickness, sh + thickness * 2)
+      aStarGrid.markObstacle(sx + sw, sy - thickness, thickness, sh + thickness * 2)
+      
+      // SOUTH (Safety check for NaN)
+      if (!isNaN(sideWallW)) {
+        aStarGrid.markObstacle(sx - thickness, sy + sh, sideWallW + thickness, thickness)
+        aStarGrid.markObstacle(sx + sw - sideWallW, sy + sh, sideWallW + thickness, thickness)
+      }
+
+      // Explicit walls from group
+      if (this.environmentManager.wallsGroup) {
+        this.environmentManager.wallsGroup.getChildren().forEach(child => {
+          const body = child.body as Phaser.Physics.Arcade.StaticBody
+          if (body) aStarGrid.markObstacleFromBody(body)
+        })
+      }
+
+      // 5. Debug Draw
+      if (this.debugGraphic && (useStatsStore().settings as any)?.showDebugPhysics) {
+        aStarGrid.debugDraw(this.debugGraphic)
+      }
+
+      // 6. Recalculate NPC Queue Path
+      // Dùng shop-ui store để lấy placedCashiers một cách an toàn
+      const gameStore = useGameStore()
+      const placedCashiers = gameStore.placedCashiers || {}
+      const cashierEntries = Object.values(placedCashiers) as any[]
+      
+      if (cashierEntries.length > 0 && this.npcManager) {
+        this.npcManager.recalculateQueuePath({ x: cashierEntries[0].x, y: cashierEntries[0].y })
+      }
+    } catch (err) {
+      // Log lỗi nhưng không làm crash game vòng lặp chính
+      console.warn('[MainScene] refreshAStarGrid failed silently:', err)
     }
   }
 
@@ -740,7 +778,23 @@ export default class MainScene extends Phaser.Scene {
       }
     }
 
-    // Ưu tiên 2: Thanh toán tại quầy (PLAYER MANUAL)
+    // Ưu tiên 2: Thu mua thẻ từ NPC seller
+    const agentsArr = Array.from((this.npcManager as any).agents.values()) as any[]
+    const nearestSeller = agentsArr.find(a => {
+      if (a.fsm.current !== 'TRADE_IN_WAITING') return false
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, a.sprite.x, a.sprite.y)
+      return dist < 80
+    })
+
+    if (nearestSeller) {
+      eventBus.emit(EVENTS.NPC_TRADE_REQUEST, { 
+        instanceId: nearestSeller.data.instanceId, 
+        cardId: nearestSeller.data.tradeCardId 
+      })
+      return
+    }
+
+    // Ưu tiên 3: Thanh toán tại quầy (PLAYER MANUAL)
     let nearestCashier = this.getNearestFromGroup(this.furnitureManager.cashierGroup, 80)
     if (nearestCashier && store.waitingCustomers > 0) {
       store.openManualCheckout()

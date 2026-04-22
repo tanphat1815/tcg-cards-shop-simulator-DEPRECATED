@@ -7,6 +7,8 @@ import { useStatsStore } from '../../stats/store/statsStore'
 import { useApiStore } from './apiStore'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 
+import { usePlayerPocketStore } from './playerPocketStore'
+
 /**
  * InventoryStore - Quản lý dòng chảy hàng hóa và bộ sưu tập thẻ bài.
  * 
@@ -204,12 +206,29 @@ export const useInventoryStore = defineStore('inventory', {
       gameStore.saveGame()
     },
 
-    /**
-     * Khôi phục kho hàng và bộ sưu tập từ bản lưu.
-     */
     loadInventory(parsed: any) {
+      // Removed require - using top-level import to fix Vite crash
+      const pocketStore = usePlayerPocketStore()
+
       this.shopInventory = parsed.shopInventory ?? {}
       this.personalBinder = parsed.personalBinder ?? {}
+
+      // MIGRATION: Chuyển toàn bộ shopInventory (kho ảo cũ) vào Túi Ba Lô (Pocket)
+      Object.keys(this.shopInventory).forEach(itemId => {
+        const qty = this.shopInventory[itemId]
+        if (qty > 0) {
+          const itemData = this.shopItems[itemId]
+          pocketStore.addToPocket({
+            itemId,
+            name: itemData?.name ?? itemId,
+            type: (itemData?.type as any) || (itemId.startsWith('box_') ? 'box' : 'pack'),
+            quantity: qty,
+            sourceSetId: itemData?.sourceSetId
+          })
+        }
+      })
+      // Xoá sạch kho ảo sau khi migrate
+      this.shopInventory = {}
     }
   }
 })

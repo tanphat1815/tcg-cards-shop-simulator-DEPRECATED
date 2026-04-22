@@ -27,9 +27,11 @@ export const ASSET_OVERRIDES: {
   entities: Record<string, string>;
 } = {
   packs: {
-    // Ví dụ: 'base1': { front: '/assets/packs/custom_base1.webp' }
+    'base2': { ext: 'png' }, // Base Set 2 often uses .png
   },
-  boxes: {},
+  boxes: {
+    'base2': { ext: 'png' },
+  },
   cards: {
     back: `${CARDS_PATH}/back.webp`, // Mặt sau thẻ bài mặc định
   },
@@ -45,11 +47,20 @@ export const ASSET_OVERRIDES: {
  * Tự động nội suy nếu không có override.
  */
 export function getPackVisuals(setId: string) {
+  if (!setId) return { front: '', back: '' };
+  
   const override = ASSET_OVERRIDES.packs[setId];
   const ext = override?.ext || DEFAULT_IMAGE_EXT;
+  
+  // Normalize: ensure we don't double up prefixes
+  const cleanId = setId.toLowerCase().startsWith('pack_') 
+    ? setId.slice(5) 
+    : setId;
+    
+  const fileName = `pack_${cleanId}`;
 
   return {
-    front: override?.front || `${PACKS_PATH}/${setId}.${ext}`,
+    front: override?.front || `${PACKS_PATH}/${fileName}.${ext}`,
     back: override?.back || `${PACKS_PATH}/back.${ext}`,
   };
 }
@@ -58,11 +69,19 @@ export function getPackVisuals(setId: string) {
  * Hàm lấy đường dẫn ảnh Box dựa trên setId.
  */
 export function getBoxVisuals(setId: string) {
+  if (!setId) return { front: '', back: '' };
+
   const override = ASSET_OVERRIDES.boxes[setId];
   const ext = override?.ext || DEFAULT_IMAGE_EXT;
+  
+  const cleanId = setId.toLowerCase().startsWith('box_') 
+    ? setId.slice(4) 
+    : setId;
+
+  const fileName = `box_${cleanId}`;
 
   return {
-    front: override?.front || `${BOXES_PATH}/${setId}.${ext}`,
+    front: override?.front || `${BOXES_PATH}/${fileName}.${ext}`,
     back: override?.back || `${BOXES_PATH}/back.${ext}`,
   };
 }

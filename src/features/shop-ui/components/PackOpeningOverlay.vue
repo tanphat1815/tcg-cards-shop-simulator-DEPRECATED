@@ -5,9 +5,9 @@
  * UI FLOW:
  * Phase 1 (packPhase = 'pack_visible'): Hiển thị vỏ Pack (dynamic asset).
  *   → Click vào Pack → rung và xé → chuyển Phase 2.
- * Phase 2 (packPhase = 'cards_visible'): Hiển thị 6 lá bài đang úp mặt.
+ * Phase 2 (packPhase = 'cards_visible'): Hiển thị các lá bài theo dạng spread.
  *   → Click từng lá để lật (Instant flip + Multi-spin for Rare+).
- *   → Khi đủ 6 lá lật → hiện nút Collect.
+ *   → Mỗi lá sau khi lật: [Binder] → cát vào Binder cá nhân.
  */
 import { ref, computed, watch, onUnmounted, reactive } from 'vue'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
@@ -15,16 +15,21 @@ import { getPackVisuals } from '../../inventory/config/assetRegistry'
 import PokemonCard3D from '../../shared/components/PokemonCard3D.vue'
 import { useCardDetailStore } from '../../inventory/store/cardDetailStore'
 import { getRarityConfig } from '../../inventory/config/rarityAnimations'
+import { getMarketPrice } from '../../shared/utils/currency'
 
 const inventoryStore = useInventoryStore()
 const detailStore = useCardDetailStore()
 
-// ─── UI-only state ──────────────────────────────────────────────────────────
+// ─── UI-only state ────────────────────────────────────────────
 const flipped = ref<boolean[]>([])
 const isPackShaking = ref(false)
 const revealClasses = ref<string[]>([])
 const isAutoRevealing = ref(false)
 let autoRevealTimer: ReturnType<typeof setInterval> | null = null
+
+// Card actions state
+const cardActions = ref<Record<number, 'binder' | null>>({})
+const collectedCards = ref<Set<number>>(new Set())
 
 // Fallback tracking for assets
 const assetErrors = reactive({
@@ -32,7 +37,7 @@ const assetErrors = reactive({
 })
 const handlePackError = () => { assetErrors.pack = true }
 
-// ─── Computed ───────────────────────────────────────────────────────────────
+// ─── Computed ─────────────────────────────────────────────
 const cards = computed(() => inventoryStore.currentPack)
 const phase = computed(() => inventoryStore.packPhase)
 const isVisible = computed(() => inventoryStore.isOpeningPack)
@@ -48,21 +53,24 @@ const packImageUrl = computed(() => {
   return getPackVisuals(setId).front
 })
 
-// ─── Watch: Reset state khi pack mới được mở ────────────────────────────────
+// ─── Watch: Reset state khi pack mới được mở ──────────────────────────────
 watch(
-  () => [isVisible.value, cards.value.length] as [boolean, number],
-  ([isOpening, count]) => {
+  () => [isVisible.value, cards.value.length, inventoryStore.currentPackSetId] as [boolean, number, string | null],
+  ([isOpening, count, setId]) => {
     if (isOpening && count > 0) {
       flipped.value = new Array(count).fill(false)
       revealClasses.value = new Array(count).fill('')
       isPackShaking.value = false
+      cardActions.value = {}
+      collectedCards.value = new Set()
+      assetErrors.pack = false // Reset error state on new pack
       stopAutoReveal()
     }
   },
   { immediate: true }
 )
 
-// ─── PHASE 1: Pack Interaction ─────────────────────────────────────────────
+// ─── PHASE 1: Pack Interaction ────────────────────────────────────
 async function handlePackClick() {
   if (isPackShaking.value || phase.value !== 'pack_visible') return
 
@@ -76,20 +84,16 @@ async function handlePackClick() {
   }, 600)
 }
 
-// ─── PHASE 2: Card Interaction ─────────────────────────────────────────────
+// ─── PHASE 2: Card Interaction ────────────────────────────────────
 function flipCard(index: number) {
   if (flipped.value[index] || phase.value !== 'cards_visible') return
   
   const card = cards.value[index]
   const config = getRarityConfig(card?.rarity)
   
-  // 1. Set class cho wrapper để trigger CSS spin animation (Rare+)
   revealClasses.value[index] = config.flipClass
-  
-  // 2. Set trạng thái đã lật NGAY LẬP TỨC để UX mượt
   flipped.value[index] = true
   
-  // 3. Âm thanh
   playFlipSound()
   if (config.tier !== 'common' && config.tier !== 'uncommon') {
     setTimeout(() => playRareSound(), 200)
@@ -132,12 +136,35 @@ function stopAutoReveal() {
   isAutoRevealing.value = false
 }
 
-function handleCollect() {
+// Cất vào Binder cá nhân
+function collectToBinder(index: number) {
+  cardActions.value[index] = 'binder'
+  collectedCards.value.add(index)
+  if (isAllDecided()) finalizeCollection()
+}
+
+function isAllDecided(): boolean {
+  return cards.value.every((_, i) => collectedCards.value.has(i))
+}
+
+// Thu thập tất cả vào binder cùng lúc
+function collectAllToBinder() {
+  stopAutoReveal()
+  cards.value.forEach((_, i) => {
+    if (!collectedCards.value.has(i)) {
+      cardActions.value[i] = 'binder'
+      collectedCards.value.add(i)
+    }
+  })
+  finalizeCollection()
+}
+
+function finalizeCollection() {
   stopAutoReveal()
   inventoryStore.closePackOpening()
 }
 
-// ─── Audio & Pricing Helpers ───────────────────────────────────────────────
+// ─── Audio & Pricing Helpers ──────────────────────────────────
 function createAudioContext(): AudioContext | null {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
@@ -199,8 +226,6 @@ function playRareSound() {
   } catch {}
 }
 
-import { formatVND, getRawPrice, getMarketPrice } from '../../shared/utils/currency'
-
 onUnmounted(() => stopAutoReveal())
 </script>
 
@@ -216,57 +241,88 @@ onUnmounted(() => stopAutoReveal())
             <div class="pack-glow-ring ring-1"></div>
             <div class="pack-image-container">
               <img v-if="packImageUrl" :src="packImageUrl" class="pack-front-img" @error="handlePackError" />
-              <div v-else class="pack-emoji">🎴</div>
+              <div v-else class="pack-emoji">🃔</div>
               <div class="pack-shine"></div>
             </div>
           </div>
           <p class="pack-click-hint">👆 Click để xé</p>
         </div>
 
-        <!-- PHASE 2: CARDS -->
+        <!-- PHASE 2: CARDS — Spread Layout -->
         <div v-else-if="phase === 'cards_visible'" class="cards-phase" key="cards">
           <h2 class="cards-title">⭐ Kết quả mở Pack ⭐</h2>
-          
-          <div class="cards-grid">
+
+          <!-- Spread Row -->
+          <div class="spread-row">
             <div
               v-for="(card, index) in cards"
               :key="index"
-              class="card-slot card-flip-container"
-              :class="revealClasses[index]"
-              :style="{ 
+              class="spread-card-wrapper"
+              :class="[
+                revealClasses[index],
+                { 'is-collected': collectedCards.has(index) }
+              ]"
+              :style="{
                 '--card-index': index,
-                '--fly-from-x': `${(index - 2.5) * 40}px`,
-                '--fly-from-y': `${Math.abs(index - 2.5) * -30}px`,
-                '--fly-rotate': `${(index - 2.5) * 10}deg`,
+                '--total': cards.length,
                 '--rarity-glow': flipped[index] ? getRarityConfig(card?.rarity).glowColor : 'transparent'
               }"
-              @click="flipped[index] ? detailStore.openCard(card) : flipCard(index)"
             >
-              <PokemonCard3D
-                :card="card"
-                :is-back="!flipped[index]"
-                :is-reverse="card.isReverse || false"
-                width="100%"
-              />
-              <div v-if="flipped[index]" class="card-price-tag group/price cursor-help">
-                {{ getMarketPrice(card) }}
-                <!-- VND Tooltip -->
-                <div v-if="getRawPrice(card) > 0" class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max bg-slate-900 text-white text-[11px] font-bold rounded px-2 py-1 shadow-lg opacity-0 invisible group-hover/price:opacity-100 group-hover/price:visible transition-all duration-200 z-50 pointer-events-none border border-slate-700 tracking-wider">
-                  <span class="text-emerald-400">{{ formatVND(getRawPrice(card)) }}</span>
-                  <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-slate-900 rotate-45 border-r border-b border-slate-700"></div>
-                </div>
+              <!-- Card Visual -->
+              <div
+                class="spread-card"
+                @click="flipped[index] ? detailStore.openCard(card) : flipCard(index)"
+                :style="{ cursor: flipped[index] ? 'help' : 'pointer' }"
+              >
+                <PokemonCard3D
+                  :card="card"
+                  :is-back="!flipped[index]"
+                  :is-reverse="card.isReverse || false"
+                  width="100%"
+                />
               </div>
+
+              <!-- Quick Action: chỉ hiện sau khi lật và chưa collect -->
+              <Transition name="action-slide">
+                <div v-if="flipped[index] && !collectedCards.has(index)" class="card-quick-actions">
+                  <div class="card-price-display">{{ getMarketPrice(card) }}</div>
+                  <button
+                    @click="collectToBinder(index)"
+                    class="action-btn action-binder"
+                    title="Cất vào Binder cá nhân"
+                  >
+                    🗂️ Binder
+                  </button>
+                </div>
+                <div v-else-if="collectedCards.has(index)" class="card-collected-badge">
+                  <span>🗂️ Đã cất</span>
+                </div>
+              </Transition>
             </div>
           </div>
 
+          <!-- Controls Bar -->
           <div class="controls-panel">
             <div class="controls-buttons">
-              <button class="ctrl-btn btn-auto" :class="{ 'btn-active': isAutoRevealing }" :disabled="allFlipped" @click="isAutoRevealing ? stopAutoReveal() : startAutoReveal()">
+              <button
+                class="ctrl-btn btn-auto"
+                :class="{ 'btn-active': isAutoRevealing }"
+                :disabled="allFlipped"
+                @click="isAutoRevealing ? stopAutoReveal() : startAutoReveal()"
+              >
                 {{ isAutoRevealing ? '⏸ Dừng' : '▶ Auto-Reveal' }}
               </button>
-              <button class="ctrl-btn btn-reveal" :disabled="allFlipped" @click="revealAll">✨ Reveal All</button>
+              <button class="ctrl-btn btn-reveal" :disabled="allFlipped" @click="revealAll">
+                ✨ Reveal All
+              </button>
               <Transition name="collect-appear">
-                <button v-if="allFlipped" class="ctrl-btn btn-collect" @click="handleCollect">🎒 Thu thập tất cả</button>
+                <button
+                  v-if="allFlipped && collectedCards.size < cards.length"
+                  class="ctrl-btn btn-collect"
+                  @click="collectAllToBinder"
+                >
+                  🎒 Thu thập tất cả → Binder
+                </button>
               </Transition>
             </div>
           </div>
@@ -296,31 +352,159 @@ onUnmounted(() => stopAutoReveal())
 .pack-shine { position: absolute; inset: 0; background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.12) 50%, transparent 60%); animation: shine-sweep 2.5s infinite; }
 .pack-click-hint { color: rgba(255, 255, 255, 0.6); animation: hint-blink 1.5s infinite; }
 
-/* Phase 2 Styles */
-.cards-phase { display: flex; flex-direction: column; align-items: center; gap: 4rem; width: 95%; height: 100%; padding-top: 2rem; }
+/* ── SPREAD LAYOUT PHASE 2 ── */
+.cards-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  width: 100%;
+  height: 100%;
+  padding: 2rem 1rem;
+}
+
 .cards-title { font-size: 1.75rem; font-weight: 900; color: #fff; text-shadow: 0 0 20px rgba(255, 215, 0, 0.5); }
-.cards-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 2.5rem 1.5rem; }
 
-/* CARD WRAPPER - FLY IN & MULTI SPIN */
-.card-slot {
-  flex: 0 1 auto;
-  width: clamp(140px, 12vw, 210px);
+.spread-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 1rem 2rem;
+  flex-wrap: nowrap;
+}
+
+/* ── SPREAD CARD WRAPPER ── */
+.spread-card-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: clamp(120px, 11vw, 180px);
   position: relative;
-  animation: card-fly-in 0.8s cubic-bezier(0.19, 1, 0.22, 1) both;
-  animation-delay: calc(var(--card-index) * 80ms);
+  animation:
+    card-deal-in 0.6s cubic-bezier(0.19, 1, 0.22, 1) both,
+    card-fan-settle 0.4s cubic-bezier(0.19, 1, 0.22, 1) 0.5s both;
+  animation-delay:
+    calc(var(--card-index) * 100ms),
+    calc(var(--card-index) * 100ms + 200ms);
 }
 
-.card-flip-container {
-  perspective: 1000px;
+@keyframes card-deal-in {
+  0% {
+    opacity: 0;
+    transform: translateY(200px) scale(0.5) rotate(0deg);
+    filter: blur(8px);
+  }
+  60% { opacity: 1; filter: blur(0); }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
 }
 
-.card-price-tag {
-  position: absolute; bottom: -25px; left: 50%; translate: -50% 0;
-  background: rgba(0, 0, 0, 0.7); color: #34d399; font-weight: 900; font-size: 0.75rem;
-  padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(52, 211, 153, 0.3);
+@keyframes card-fan-settle {
+  from {
+    transform: translateY(0) rotate(0deg);
+  }
+  to {
+    transform:
+      translateY(calc(var(--card-index) * -4px))
+      rotate(calc((var(--card-index) - (var(--total) - 1) / 2) * 3deg));
+  }
 }
 
-/* Multi-Spin Keyframes (Scoped selector for PokemonCard3D's rotator) */
+.spread-card-wrapper:hover {
+  transform: translateY(-20px) rotate(0deg) !important;
+  z-index: 10;
+  transition: transform 0.2s ease;
+}
+
+.spread-card-wrapper.is-collected {
+  opacity: 0.5;
+  transform: scale(0.9) !important;
+  transition: all 0.3s ease;
+}
+
+.spread-card {
+  width: 100%;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.08),
+    0 20px 40px rgba(0,0,0,0.5),
+    0 0 30px var(--rarity-glow);
+  transition: box-shadow 0.4s ease;
+}
+
+/* ── QUICK ACTIONS ── */
+.card-quick-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  width: 100%;
+}
+
+.card-price-display {
+  font-size: 13px;
+  font-weight: 900;
+  color: #34d399;
+  background: rgba(0,0,0,0.6);
+  padding: 2px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.action-btn {
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.action-btn:hover { opacity: 0.85; transform: scale(1.05); }
+
+.action-binder {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: white;
+}
+
+/* ── COLLECTED BADGE ── */
+.card-collected-badge {
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-align: center;
+  padding: 4px 8px;
+  background: rgba(0,0,0,0.4);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* ── TRANSITIONS ── */
+.action-slide-enter-active, .action-slide-leave-active {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.action-slide-enter-from, .action-slide-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.9);
+}
+
+/* Controls Panel */
+.controls-panel { margin-top: auto; padding: 2rem; }
+.controls-buttons { display: flex; gap: 1rem; align-items: center; }
+.ctrl-btn { padding: 0.6rem 1.5rem; border-radius: 12px; font-weight: 800; text-transform: uppercase; cursor: pointer; transition: 0.2s; border: none; }
+.btn-auto { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; }
+.btn-reveal { background: linear-gradient(135deg, #d97706, #f59e0b); color: white; }
+.btn-collect { background: linear-gradient(135deg, #059669, #10b981); color: white; scale: 1.1; animation: collect-pulse 1.5s infinite; }
+
+/* Multi-Spin Keyframes */
 .flip-extra-spin :deep(.card__rotator) {
   animation: extra-spin 1.0s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
@@ -354,20 +538,6 @@ onUnmounted(() => stopAutoReveal())
   100% { transform: rotateY(0deg) scale(1); }
 }
 
-@keyframes card-fly-in {
-  0% { transform: translate(var(--fly-from-x), var(--fly-from-y)) scale(0.3) rotate(var(--fly-rotate)); opacity: 0; filter: blur(10px); }
-  60% { filter: blur(0); opacity: 1; }
-  100% { transform: translate(0, 0) scale(1) rotate(0); opacity: 1; }
-}
-
-/* Controls Panel */
-.controls-panel { margin-top: auto; padding: 2rem; }
-.controls-buttons { display: flex; gap: 1rem; align-items: center; }
-.ctrl-btn { padding: 0.6rem 1.5rem; border-radius: 12px; font-weight: 800; text-transform: uppercase; cursor: pointer; transition: 0.2s; border: none; }
-.btn-auto { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; }
-.btn-reveal { background: linear-gradient(135deg, #d97706, #f59e0b); color: white; }
-.btn-collect { background: linear-gradient(135deg, #059669, #10b981); color: white; scale: 1.1; animation: collect-pulse 1.5s infinite; }
-
 /* Animations */
 @keyframes pack-shake {
   0%, 100% { transform: translate(0, 0) rotate(0); }
@@ -387,4 +557,10 @@ onUnmounted(() => stopAutoReveal())
 .phase-switch-leave-to { opacity: 0; transform: scale(0.6); filter: blur(15px); }
 .phase-switch-enter-active { transition: all 0.5s; }
 .phase-switch-enter-from { opacity: 0; transform: scale(0.9) translateY(40px); }
+
+.collect-appear-enter-active { animation: collect-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes collect-in {
+  0% { opacity: 0; transform: scale(0.7); }
+  100% { opacity: 1; transform: scale(1); }
+}
 </style>

@@ -123,8 +123,8 @@ export class FurnitureManager {
     if (isVertical) sprite.setAngle(90) // Xoay 90 độ nếu cần
     
     sprite.refreshBody()
-    // Play table collider is thin (20%) to allow players/NPCs to stand "at" the table.
-    applyFootCollider(sprite, 0.2) 
+    // Play table collider: increase to 40% (instead of 20%) to improve Y-sorting consistency
+    applyFootCollider(sprite, 0.4) 
     applyStaticYSort(sprite)
 
     // Label — above entities

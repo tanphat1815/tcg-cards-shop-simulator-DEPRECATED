@@ -30,7 +30,10 @@ export interface IStaffAgent {
   carriedBoxId?: string | null
   targetShelfId?: string | null
   targetTierIndex?: number | null
-
+  
+  // Anti-loop: Tránh cầm lại những thùng mà vừa rồi không tìm được kệ trống
+  blacklistedBoxIds: Map<string, number> 
+  
   sync(duty: WorkerDuty, deskId?: string | null): void
   update(time: number, delta: number): void
   updateStatus(text: string): void
@@ -50,6 +53,7 @@ export class StaffAgent implements IStaffAgent {
   public carriedBoxId?: string | null
   public targetShelfId?: string | null
   public targetTierIndex?: number | null
+  public blacklistedBoxIds: Map<string, number>
 
   constructor(scene: Phaser.Scene, sprite: Phaser.Physics.Arcade.Sprite, instanceId: string) {
     this.scene = scene
@@ -57,6 +61,7 @@ export class StaffAgent implements IStaffAgent {
     this.instanceId = instanceId
     this.locomotion = new NPCLocomotion(scene, sprite)
     this.fsm = new StateMachine<IStaffAgent>(this)
+    this.blacklistedBoxIds = new Map()
 
     this.statusText = this.scene.add.text(sprite.x, sprite.y - 55, '', {
       fontSize: '10px',
@@ -176,20 +181,85 @@ class RestockerIdleState implements IState<IStaffAgent> {
     if (time > this.lastSearchTime + 2000) {
       this.lastSearchTime = time
       const dm = (agent.scene as any).deliveryManager
+      const sm = (agent.scene as any).staffManager as StaffManager
       const boxes = dm.getUncarriedBoxes().filter((b: any) => b.type !== 'furniture')
       
       const furnitureStore = useFurnitureStore()
       const hasShelves = Object.values(furnitureStore.placedShelves).length > 0
 
       if (boxes.length > 0 && hasShelves) {
-        const target = boxes[0]
+        // Lọc bỏ những thùng đang bị blacklist (do không có kệ)
+        const reachableBoxes = boxes.filter((b: any) => {
+          const expire = agent.blacklistedBoxIds.get(b.id)
+          if (expire && time < expire) return false
+          
+          // 🆕 KIỂM TRA TRƯỚC: Có kệ nào còn chỗ cho món này không?
+          // Nếu không tìm thấy kệ trống, không nhặt thùng này
+          const shelfSearch = sm.findEligibleShelf(b.itemId)
+          if (!shelfSearch) {
+             // Tạm thời blacklist để tìm thùng khác trong vòng lặp tiếp theo
+             agent.blacklistedBoxIds.set(b.id, time + 10000)
+             return false
+          }
+          
+          return true
+        })
+
+        if (reachableBoxes.length === 0) {
+          // 🆕 THỬ NGHIỆM: Tìm trong kho (Storage Shelves) nếu đất trống
+          this.searchStorageToSelling(agent, time)
+          return
+        }
+
+        const target = reachableBoxes[0]
         if (dm.staffPickUpBox(target.id)) {
           agent.carriedBoxId = target.id
           agent.fsm.transition('RESTOCKER_MOVE_TO_BOX')
         }
+      } else if (hasShelves) {
+        // Không có thùng trên đất, thử tìm trong kho
+        this.searchStorageToSelling(agent, time)
       }
     }
   }
+
+  private searchStorageToSelling(agent: IStaffAgent, time: number) {
+    const furnitureStore = useFurnitureStore()
+    const sm = (agent.scene as any).staffManager as StaffManager
+    const dm = (agent.scene as any).deliveryManager
+    
+    const sellingShelves = Object.values(furnitureStore.placedShelves).filter((s: any) => s.role === 'selling')
+    
+    for (const shelf of sellingShelves as any[]) {
+      for (const tier of shelf.tiers) {
+        if (!tier.itemId || tier.slots.length >= tier.maxSlots) continue
+        
+        // Cần thêm hàng cho itemId này. Tìm trong Storage.
+        const source = sm.findStorageSource(tier.itemId)
+        if (source) {
+          // Lấy hàng từ kho
+          const amountToTake = Math.min(10, source.quantity) // Giới hạn 10 món mỗi lần vác
+          const taken = furnitureStore.takeItemFromTierSimple(source.shelfId, source.tierIndex, amountToTake)
+          
+          if (taken > 0) {
+            const shelfObj = furnitureStore.placedShelves[source.shelfId]
+            const itemName = useInventoryStore().shopItems[tier.itemId]?.name || tier.itemId
+            
+            // Spawn box tại vị trí kệ kho
+            const boxId = dm.spawnStaffBoxAt(
+              { itemId: tier.itemId, name: itemName, type: 'pack', quantity: taken },
+              shelfObj.x, shelfObj.y
+            )
+            
+            agent.carriedBoxId = boxId
+            agent.fsm.transition('RESTOCKER_MOVE_TO_BOX')
+            return
+          }
+        }
+      }
+    }
+  }
+
   onExit() {}
 }
 
@@ -206,8 +276,20 @@ class RestockerMoveToBoxState implements IState<IStaffAgent> {
     }
   }
   onUpdate(agent: IStaffAgent) {
+    const dm = (agent.scene as any).deliveryManager
+    const box = dm.getBoxById(agent.carriedBoxId!)
+    
+    if (box) {
+      const dist = Phaser.Math.Distance.Between(agent.sprite.x, agent.sprite.y, box.sprite.x, box.sprite.y)
+      if (dist < 32) {
+        agent.fsm.transition('RESTOCKER_WORKING')
+        return
+      }
+    }
+
     if (!agent.locomotion.isMoving) {
-       agent.fsm.transition('RESTOCKER_WORKING') // Bắt đầu search kệ
+       // Nếu bị kẹt hoặc không tìm thấy đường, chờ một chút rồi thử lại
+       agent.fsm.transition('RESTOCKER_IDLE')
     }
   }
   onExit() {}
@@ -253,7 +335,7 @@ class RestockerWorkingState implements IState<IStaffAgent> {
 
     if (time > this.actionTimer) {
       const furnitureStore = useFurnitureStore()
-      const dm = (agent.scene as any).staffManager?.deliveryManager
+      const dm = (agent.scene as any).deliveryManager
       if (!dm) return
 
       const box = dm.getBoxById(agent.carriedBoxId!)
@@ -280,39 +362,34 @@ class RestockerWorkingState implements IState<IStaffAgent> {
             agent.fsm.transition('RESTOCKER_IDLE')
          } else {
             // Thùng còn hàng -> Tìm kệ tiếp theo
-            this.searchNextShelf(agent)
+            this.searchNextShelf(agent, time)
          }
       } else {
-         this.searchNextShelf(agent)
+         this.searchNextShelf(agent, time)
       }
     }
   }
 
-  private searchNextShelf(agent: IStaffAgent) {
-    const furnitureStore = useFurnitureStore()
-    const dm = (agent.scene as any).staffManager?.deliveryManager
+  private searchNextShelf(agent: IStaffAgent, time: number) {
+    const sm = (agent.scene as any).staffManager as StaffManager
+    const dm = (agent.scene as any).deliveryManager
     if (!dm) return
     
     const box = dm.getBoxById(agent.carriedBoxId!)
     if (!box) { agent.fsm.transition('RESTOCKER_IDLE'); return; }
 
-    const shelves = Object.values(furnitureStore.placedShelves) as any[]
+    const shelfSearch = sm.findEligibleShelf(box.itemId)
     let found = false
-    for (const shelf of shelves) {
-      if (shelf.role !== 'selling') continue
-      const tierIdx = shelf.tiers.findIndex((t: any) => 
-        (t.itemId === box.itemId && t.slots.length < t.maxSlots) || (t.itemId === null)
-      )
-      if (tierIdx !== -1) {
-        agent.targetShelfId = shelf.id
-        agent.targetTierIndex = tierIdx
+    if (shelfSearch) {
+        agent.targetShelfId = shelfSearch.shelfId
+        agent.targetTierIndex = shelfSearch.tierIndex
         agent.fsm.transition('RESTOCKER_MOVE_TO_SHELF')
         found = true
-        break
-      }
     }
 
     if (!found) {
+       // Nếu không tìm thấy kệ, blacklist thùng này trong 15s để tìm thùng khác
+       agent.blacklistedBoxIds.set(agent.carriedBoxId!, time + 15000)
        agent.fsm.transition('RESTOCKER_RETURN_BOX')
     }
   }
@@ -361,6 +438,60 @@ export class StaffManager {
     this.scene = scene
     this.environmentManager = environmentManager
     this.deliveryManager = deliveryManager
+  }
+
+  /**
+   * Tìm kệ kho có chứa itemId cụ thể.
+   */
+  public findStorageSource(itemId: string): { shelfId: string, tierIndex: number, quantity: number } | null {
+    const furnitureStore = useFurnitureStore()
+    const shelves = Object.values(furnitureStore.placedShelves) as any[]
+
+    for (const shelf of shelves) {
+      if (shelf.role !== 'storage') continue
+      
+      const tierIdx = shelf.tiers.findIndex((t: any) => t.itemId === itemId && t.slots.length > 0)
+      if (tierIdx !== -1) {
+        return { 
+          shelfId: shelf.id, 
+          tierIndex: tierIdx, 
+          quantity: shelf.tiers[tierIdx].slots.length 
+        }
+      }
+    }
+    return null
+  }
+
+  /**
+   * Tìm kiếm kệ hợp lệ cho một món hàng. 
+   * Xét cả kệ bán hàng (selling) và kệ kho (storage) nếu là nhặt từ đất.
+   * Nhưng ưu tiên Selling.
+   */
+  public findEligibleShelf(itemId: string, forceSelling: boolean = false): { shelfId: string, tierIndex: number } | null {
+    const furnitureStore = useFurnitureStore()
+    const shelves = Object.values(furnitureStore.placedShelves) as any[]
+
+    // Ưu tiên 1: Kệ bán hàng
+    for (const shelf of shelves) {
+      if (shelf.role !== 'selling') continue
+      const tierIdx = shelf.tiers.findIndex((t: any) => 
+        (t.itemId === itemId && t.slots.length < t.maxSlots) || (t.itemId === null)
+      )
+      if (tierIdx !== -1) return { shelfId: shelf.id, tierIndex: tierIdx }
+    }
+
+    if (forceSelling) return null
+
+    // Ưu tiên 2: Kệ kho
+    for (const shelf of shelves) {
+      if (shelf.role !== 'storage') continue
+      const tierIdx = shelf.tiers.findIndex((t: any) => 
+        (t.itemId === itemId && t.slots.length < t.maxSlots) || (t.itemId === null)
+      )
+      if (tierIdx !== -1) return { shelfId: shelf.id, tierIndex: tierIdx }
+    }
+
+    return null
   }
 
   public syncWorkers() {

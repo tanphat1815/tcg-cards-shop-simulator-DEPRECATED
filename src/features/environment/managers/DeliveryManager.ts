@@ -8,11 +8,13 @@ import { useFurnitureStore } from '../../furniture/store/furnitureStore'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { useUIStore } from '../../shop-ui/store/uiStore'
 import { useGradingStore } from '../../grading/store/gradingStore'
+import { usePlayerPocketStore } from '../../inventory/store/playerPocketStore'
+import { useGameStore } from '../../shop-ui/store/gameStore'
 import { TEX } from '../assetKeys'
 
 interface LiveBox {
   id: string
-  sprite: Phaser.Physics.Arcade.Sprite   // ← ĐỔI từ Rectangle sang Sprite
+  sprite: Phaser.Physics.Arcade.Sprite
   label: Phaser.GameObjects.Text
   qtyLabel: Phaser.GameObjects.Text
   itemId: string
@@ -33,6 +35,8 @@ export class DeliveryManager {
   private lastSpawnTime = 0
   private spawnInterval = 800
   private keyF!: Phaser.Input.Keyboard.Key
+  private keyR!: Phaser.Input.Keyboard.Key
+  private keyB!: Phaser.Input.Keyboard.Key
   private hintText!: Phaser.GameObjects.Text
   private packageSprites: Map<string, Phaser.GameObjects.Sprite> = new Map()
 
@@ -41,6 +45,8 @@ export class DeliveryManager {
     this.scene = scene
     this.environmentManager = environmentManager
     this.keyF = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.F)
+    this.keyR = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R)
+    this.keyB = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.B)
     
     // 1. Khởi tạo Box Group (Vật thể động)
     this.boxGroup = this.scene.physics.add.group({
@@ -198,17 +204,36 @@ export class DeliveryManager {
 
   private updateHintText(playerX: number, playerY: number) {
     const deliveryStore = useDeliveryStore()
+    const uiStore = useUIStore()
     const cam = this.scene.cameras.main
 
+    // ── RULE: TUYỆT ĐỐI ẩn hint khi đang mở bất kỳ UI Modal nào ──
+    const isAnyModalOpen =
+      uiStore.showShelfMenu ||
+      uiStore.showBinderMenu ||
+      uiStore.showBuildMenu ||
+      uiStore.showOnlineShop
+
+    if (isAnyModalOpen) {
+      this.hintText.setVisible(false)
+      return
+    }
+
+    // ── Đang cầm thùng ──
     if (deliveryStore.carriedBox) {
+      const actionText = deliveryStore.carriedBox.type === 'furniture'
+        ? '[F] Thả xuống  •  [R] Mở thùng để đặt đồ'
+        : '[F] Thả xuống  •  [R] Bóc thùng → vào Túi'
+
       this.hintText
-        .setText('[F] Đặt xuống  •  [E] Cất vào kệ')
+        .setText(actionText)
         .setVisible(true)
         .setPosition(cam.width / 2, cam.height - 80)
         .setOrigin(0.5)
       return
     }
 
+    // ── Có thùng gần ──
     let hasNearby = false
     for (const box of this.boxes) {
       if (box.carriedBy !== null) continue
@@ -231,9 +256,32 @@ export class DeliveryManager {
   }
 
   private checkPickup(playerX: number, playerY: number) {
+    const deliveryStore = useDeliveryStore()
+
+    // ── PHÍM R: Bóc thùng đang vác ──
+    if (Phaser.Input.Keyboard.JustDown(this.keyR)) {
+      if (deliveryStore.carriedBox) {
+        if (deliveryStore.carriedBox.type === 'furniture') {
+          // Bóc thùng furniture -> vào chế độ đặt đồ
+          useFurnitureStore().startBuildMode(deliveryStore.carriedBox.itemId)
+          this.removeCarriedBox()
+          deliveryStore.dropBox()
+        } else {
+          // Bóc thùng hàng -> vào Túi
+          this.unpackCarriedBox()
+        }
+        return
+      }
+    }
+
+    // ── PHÍM B: Mở túi (Pocket) ──
+    if (Phaser.Input.Keyboard.JustDown(this.keyB)) {
+      useGameStore().openPocketModal()
+    }
+
+    // ── PHÍM F: Nhặt / Thả thùng ──
     if (!Phaser.Input.Keyboard.JustDown(this.keyF)) return
 
-    const deliveryStore = useDeliveryStore()
     if (deliveryStore.carriedBox) {
       this.dropCarried()
       return
@@ -251,11 +299,72 @@ export class DeliveryManager {
     }
 
     if (nearest) {
-      // Safety: NPCs không bao giờ nhặt thùng Furniture
-      // (Dù logic NPC chưa gọi checkPickup này, nhưng đây là safety layer)
       this.pickUp(nearest)
     }
-}
+  }
+
+  /**
+   * Bóc thùng hàng đang vác: Giải phóng toàn bộ Pack/Box bên trong
+   * vào playerPocketStore của Player.
+   * Hộp vật lý Phaser bị hủy.
+   */
+  public unpackCarriedBox() {
+    const deliveryStore = useDeliveryStore()
+    const pocketStore = usePlayerPocketStore()
+    const inventoryStore = useInventoryStore()
+
+    const carried = deliveryStore.carriedBox
+    if (!carried) return
+
+    if (carried.type === 'furniture') {
+      // Đồ nội thất không bóc được, thông báo Player
+      console.warn('[DeliveryManager] Không thể bóc thùng nội thất. Hãy đặt xuống gần kệ.')
+      return
+    }
+
+    // Lấy thông tin item để biết quantity bên trong
+    const shopItem = inventoryStore.shopItems[carried.itemId]
+    if (!shopItem) {
+      // Fallback: đẩy thẳng vào pocket dù không có shopItem
+      pocketStore.addToPocket({
+        itemId: carried.itemId,
+        name: carried.name,
+        type: carried.type as 'pack' | 'box',
+        quantity: carried.quantity,
+      })
+      this.removeCarriedBox()
+      deliveryStore.dropBox()
+      return
+    }
+
+    // Nếu là Box → unbox thành Pack trước, rồi vào pocket
+    if (carried.type === 'box' && shopItem.contains) {
+      const innerItemId = shopItem.contains.itemId
+      const innerAmount = shopItem.contains.amount * carried.quantity
+      const innerItem = inventoryStore.shopItems[innerItemId]
+
+      pocketStore.addToPocket({
+        itemId: innerItemId,
+        name: innerItem?.name ?? innerItemId,
+        type: 'pack',
+        quantity: innerAmount,
+        sourceSetId: innerItem?.sourceSetId,
+      })
+    } else {
+      // Đây là Pack trực tiếp
+      pocketStore.addToPocket({
+        itemId: carried.itemId,
+        name: carried.name,
+        type: carried.type as 'pack',
+        quantity: carried.quantity,
+        sourceSetId: shopItem?.sourceSetId,
+      })
+    }
+
+    // Hủy thùng vật lý
+    this.removeCarriedBox()
+    deliveryStore.dropBox()
+  }
 
   private pickUp(nearest: LiveBox) {
     const deliveryStore = useDeliveryStore()
@@ -325,13 +434,52 @@ export class DeliveryManager {
     box.isBeingCarried = true
     box.carriedBy = 'staff'
     const body = box.sprite.body as Phaser.Physics.Arcade.Body
-    body.setEnable(false)
+    if (body) {
+      body.setEnable(false)
+    }
 
-    // Cập nhật trạng thái trong store (tùy chọn, để debug hoặc UI)
-    // currently deliveryStore.carriedBox is mainly for player HUD.
-    // We could add a list of carried boxes by staff in staffStore or deliveryStore if needed.
-    
     return true
+  }
+
+  /**
+   * Tạo một thùng hàng tại chỗ (dành cho nhân viên lấy từ kho)
+   */
+  public spawnStaffBoxAt(item: { itemId: string; name: string; type: string; quantity: number }, x: number, y: number): string {
+    const boxId = `box_storage_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
+    
+    // Tạo sprite
+    const boxTexture = item.type === 'furniture' ? AppConfig.ASSETS.BOXES.FURNITURE : AppConfig.ASSETS.BOXES.ITEM
+    const boxSprite = this.scene.physics.add.sprite(x, y, boxTexture)
+    boxSprite.setOrigin(0.5, 1)
+    applyFootCollider(boxSprite, 1.0)
+    boxSprite.setCollideWorldBounds(true)
+    
+    this.boxGroup.add(boxSprite)
+    const body = boxSprite.body as Phaser.Physics.Arcade.Body
+    body.setEnable(false) // Tắt vật lý ngay lập tức vì sẽ được vác đi
+
+    const label = this.scene.add.text(x, y - 40, item.name.substring(0, 20), {
+      fontSize: '9px', color: '#ffffff', backgroundColor: 'rgba(0,0,0,0.7)', padding: { x: 3, y: 2 }
+    }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
+
+    const qtyLabel = this.scene.add.text(x, y - 25, `×${item.quantity}`, {
+      fontSize: '11px', color: '#fbbf24', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
+
+    this.boxes.push({
+      id: boxId,
+      sprite: boxSprite,
+      label,
+      qtyLabel,
+      itemId: item.itemId,
+      type: item.type,
+      quantity: item.quantity,
+      name: item.name,
+      isBeingCarried: true,
+      carriedBy: 'staff'
+    })
+
+    return boxId
   }
 
   /**
@@ -344,8 +492,11 @@ export class DeliveryManager {
     box.isBeingCarried = false
     box.carriedBy = null
     box.sprite.setPosition(x, y)
+    
     const body = box.sprite.body as Phaser.Physics.Arcade.Body
     body.setEnable(true)
+    body.setGravityY(0)    // 🆕 Tắt trọng lực để không rơi xuyên map
+    body.setVelocity(0, 0) // 🆕 Dừng mọi chuyển động thừa
   }
 
   /**
@@ -360,39 +511,23 @@ export class DeliveryManager {
 
   handleShelfInteraction(shelfId: string): boolean {
     const deliveryStore = useDeliveryStore()
-    if (!deliveryStore.carriedBox) return false
-
     const furnitureStore = useFurnitureStore()
+    const uiStore = useUIStore()
     const shelf = furnitureStore.placedShelves[shelfId]
     if (!shelf) return false
 
-    const carried = deliveryStore.carriedBox
-    const shelfRole = shelf.role ?? 'selling'
-
-    if (shelfRole === 'selling') {
-      if (carried.type === 'furniture') {
-        furnitureStore.startBuildMode(carried.itemId)
-        this.removeCarriedBox()
-        deliveryStore.dropBox()
-        return true
-      }
-      useUIStore().openShelfMenu(shelfId)
-      return true
-    } else {
-      if (carried.type === 'furniture') {
-        furnitureStore.startBuildMode(carried.itemId)
-      } else {
-        const inventoryStore = useInventoryStore()
-        if (!inventoryStore.shopInventory[carried.itemId]) {
-          inventoryStore.shopInventory[carried.itemId] = 0
-        }
-        inventoryStore.shopInventory[carried.itemId] += carried.quantity
-      }
-      
+    // Nếu đang cầm đồ nội thất → vẫn cho phép đặt đồ
+    if (deliveryStore.carriedBox?.type === 'furniture') {
+      furnitureStore.startBuildMode(deliveryStore.carriedBox.itemId)
       this.removeCarriedBox()
       deliveryStore.dropBox()
       return true
     }
+
+    // Mọi trường hợp còn lại → chỉ mở Shelf UI
+    // Player sẽ tự tay kéo hàng từ Pocket vào tầng kệ trong menu
+    uiStore.openShelfMenu(shelfId)
+    return true
   }
 
   public removeCarriedBox() {

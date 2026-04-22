@@ -6,6 +6,8 @@ import { useUIStore } from '../store/uiStore'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
 
 import CartButton from '../../inventory/components/CartButton.vue'
+import ControlHintOverlay from './ControlHintOverlay.vue'
+import { usePlayerPocketStore } from '../../inventory/store/playerPocketStore'
 
 /**
  * Facade store for managing game state
@@ -13,6 +15,7 @@ import CartButton from '../../inventory/components/CartButton.vue'
 const gameStore = useGameStore()
 const battleStore = useBattleStore()
 const uiStore = useUIStore()
+const pocketStore = usePlayerPocketStore()
 
 
 // Clock logic - Removed from Vue to keep single source of truth in Phaser MainScene
@@ -203,6 +206,21 @@ const isInventoryMinimized = ref(false)
             </EnhancedButton>
             <CartButton />
 
+            <!-- Túi Ba Lô Button -->
+            <button
+              @click="pocketStore.openPocketModal()"
+              class="relative bg-yellow-600 hover:bg-yellow-500 text-white rounded-full w-12 h-12 flex items-center justify-center shadow-lg transition-all hover:scale-110 pointer-events-auto"
+              title="Túi Ba Lô (hàng đã bóc thùng)"
+            >
+              🎒
+              <span
+                v-if="pocketStore.totalItems > 0"
+                class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-white"
+              >
+                {{ Object.keys(pocketStore.pocket).length }}
+              </span>
+            </button>
+
           </div>
         </div>
         <div v-else key="minimized" class="pointer-events-auto flex items-center gap-2">
@@ -314,6 +332,7 @@ const isInventoryMinimized = ref(false)
         </div>
       </div>
     </Transition>
+    <ControlHintOverlay />
   </div>
 </template>
 

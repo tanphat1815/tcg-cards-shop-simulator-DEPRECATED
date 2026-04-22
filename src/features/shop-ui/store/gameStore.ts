@@ -12,7 +12,10 @@ import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import { usePlayerHandStore } from '../../inventory/store/playerHandStore'
 import { useGradingStore } from '../../grading/store/gradingStore'
 import { useEventStore } from '../../events/store/eventStore'
+import { usePlayerPocketStore } from '../../inventory/store/playerPocketStore'
 
+
+import { useCheckoutStore } from '../../inventory/store/checkoutStore'
 
 /**
  * GameStore (Facade Pattern) - Trung tâm điều phối dữ liệu của toàn bộ ứng dụng.
@@ -90,6 +93,11 @@ export const useGameStore = defineStore('game', {
     // === Cart & Orders (Modules: cartStore) ===
     cartItemCount: () => useCartStore().totalItems,
 
+    // === Player Pocket (Modules: playerPocketStore) ===
+    playerPocket: () => usePlayerPocketStore().pocket,
+    playerPocketList: () => usePlayerPocketStore().pocketList,
+    showPocketModal: () => usePlayerPocketStore().showPocketModal,
+
     // === Derived Stats ===
     requiredExp: () => useStatsStore().requiredExp,
   },
@@ -106,6 +114,14 @@ export const useGameStore = defineStore('game', {
     setShowGradingApp(val: boolean) { useGradingStore().setShowGradingApp(val) },
     openShelfManagement(shelfId: string) { useUIStore().openShelfMenu(shelfId) },
     closeShelfManagement() { useUIStore().closeShelfMenu() },
+
+    // --- Player Pocket ---
+    openPocketModal() { usePlayerPocketStore().openPocketModal() },
+    closePocketModal() { usePlayerPocketStore().closePocketModal() },
+    addToPocket(entry: any) { usePlayerPocketStore().addToPocket(entry) },
+    removeFromPocket(itemId: string, qty: number) {
+      return usePlayerPocketStore().removeFromPocket(itemId, qty)
+    },
 
     // --- Stats & Economy Actions ---
     addMoney(amount: number) { useStatsStore().addMoney(amount) },
@@ -125,6 +141,8 @@ export const useGameStore = defineStore('game', {
     setShopState(newState: 'OPEN' | 'CLOSED') { useCustomerStore().setShopState(newState) },
     /** Phục vụ khách hàng tại quầy thu ngân (Hành động chung) */
     serveCustomer() { return useCustomerStore().serveCustomer() },
+    /** Xóa khách khỏi hàng chờ (khi rời đi) */
+    removeCustomerFromQueue(id: string) { useCustomerStore().removeCustomerFromQueue(id) },
     
     // --- Manual vs Auto Checkout ---
 
@@ -134,7 +152,7 @@ export const useGameStore = defineStore('game', {
      */
     openManualCheckout() {
       const customerStore = useCustomerStore()
-      const { useCheckoutStore } = require('../../inventory/store/checkoutStore') // lazy import
+      // Removed require - using top-level import to fix Vite crash
 
       if (customerStore.waitingQueue.length === 0) return
 
@@ -245,6 +263,7 @@ export const useGameStore = defineStore('game', {
           usePlayerHandStore().loadHand(parsed)
           useGradingStore().loadGradingState(parsed)
           useEventStore().loadEventState(parsed)
+          usePlayerPocketStore().loadPocket(parsed)
 
           
           console.log('[GameStore] Game loaded successfully')
@@ -324,6 +343,7 @@ export const useGameStore = defineStore('game', {
         activeEventId: useEventStore().activeEventId,
         nextEventId: useEventStore().nextEventId,
         totalPlayersHosted: useEventStore().totalPlayersHosted,
+        playerPocket: usePlayerPocketStore().pocket,
       }
 
       localStorage.setItem('tcg-shop-save', JSON.stringify(saveData))

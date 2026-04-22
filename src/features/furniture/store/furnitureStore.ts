@@ -7,6 +7,7 @@ import { useDeliveryStore } from '../../inventory/store/deliveryStore'
 import { useGradingStore } from '../../grading/store/gradingStore'
 import { useApiStore } from '../../inventory/store/apiStore'
 import { useEventStore } from '../../events/store/eventStore'
+import { usePlayerPocketStore } from '../../inventory/store/playerPocketStore'
 
 import type { ShelfData, PlayTableData, CashierData, ShelfTier, ShelfRole } from '../types'
 
@@ -163,8 +164,17 @@ export const useFurnitureStore = defineStore('furniture', {
     fillTierFromHand(shelfId: string, itemId: string, tierIndex: number, quantity: number): number {
       const inventoryStore = useInventoryStore()
       const shelf = this.placedShelves[shelfId]
-      if (!shelf) return 0
-      const itemData = inventoryStore.shopItems[itemId]
+      if (!shelf || !itemId) return 0
+      
+      // Fallback: Tìm itemData, nếu không có trong shopItems thì tạo nhanh để tránh lỗi đặt hàng
+      let itemData = inventoryStore.shopItems[itemId]
+      if (!itemData) {
+        if (typeof itemId === 'string' && itemId.startsWith('pack_')) {
+          itemData = { id: itemId, name: itemId.replace('pack_', ''), type: 'pack', buyPrice: 10, sellPrice: 20 } as any
+        } else if (typeof itemId === 'string' && itemId.startsWith('box_')) {
+          itemData = { id: itemId, name: itemId.replace('box_', ''), type: 'box', buyPrice: 100, sellPrice: 200 } as any
+        }
+      }
       if (!itemData) return 0
 
       const tier = shelf.tiers[tierIndex]
@@ -194,14 +204,22 @@ export const useFurnitureStore = defineStore('furniture', {
      * Thu hồi toàn bộ hàng từ một tầng kệ về kho.
      */
     clearTier(shelfId: string, tierIndex: number) {
+      const pocketStore = usePlayerPocketStore()
       const inventoryStore = useInventoryStore()
       const shelf = this.placedShelves[shelfId]
       if (!shelf) return
       const tier = shelf.tiers[tierIndex]
       if (!tier.itemId) return
 
-      if (!inventoryStore.shopInventory[tier.itemId]) inventoryStore.shopInventory[tier.itemId] = 0
-      inventoryStore.shopInventory[tier.itemId] += tier.slots.length
+      // Trả hàng vào Túi Ba Lô
+      const shopItem = inventoryStore.shopItems[tier.itemId]
+      pocketStore.addToPocket({
+        itemId: tier.itemId,
+        name: shopItem?.name ?? tier.itemId,
+        type: (shopItem?.type as any) || (tier.itemId.startsWith('box_') ? 'box' : 'pack'),
+        quantity: tier.slots.length,
+        sourceSetId: shopItem?.sourceSetId
+      })
       
       tier.itemId = null
       tier.slots = []
@@ -240,13 +258,20 @@ export const useFurnitureStore = defineStore('furniture', {
      * Lấy 1 món đồ từ kệ trả về kho hàng (Legacy/Accounting).
      */
     takeItemFromTier(shelfId: string, tierIndex: number) {
+      const pocketStore = usePlayerPocketStore()
       const inventoryStore = useInventoryStore()
       const itemId = this.takeItemFromTierSimple(shelfId, tierIndex)
       if (!itemId) return
 
-      // Trả lại vào kho
-      if (!inventoryStore.shopInventory[itemId]) inventoryStore.shopInventory[itemId] = 0
-      inventoryStore.shopInventory[itemId]++
+      // Trả lại vào Túi
+      const shopItem = inventoryStore.shopItems[itemId]
+      pocketStore.addToPocket({
+        itemId: itemId,
+        name: shopItem?.name ?? itemId,
+        type: (shopItem?.type as any) || (itemId.startsWith('box_') ? 'box' : 'pack'),
+        quantity: 1,
+        sourceSetId: shopItem?.sourceSetId
+      })
     },
 
     /**
@@ -565,12 +590,18 @@ export const useFurnitureStore = defineStore('furniture', {
       const furnitureId = data.furnitureId
 
       if (data.type === 'shelf' && data.tiers) {
+        const pocketStore = usePlayerPocketStore()
         data.tiers.forEach((tier: any) => {
-          tier.slots.forEach((itemId: string | null) => {
-            if (itemId) {
-              inventoryStore.shopInventory[itemId] = (inventoryStore.shopInventory[itemId] || 0) + 1
-            }
-          })
+          if (tier.itemId && tier.slots.length > 0) {
+            const shopItem = inventoryStore.shopItems[tier.itemId]
+            pocketStore.addToPocket({
+              itemId: tier.itemId,
+              name: shopItem?.name ?? tier.itemId,
+              type: (shopItem?.type as any) || (tier.itemId.startsWith('box_') ? 'box' : 'pack'),
+              quantity: tier.slots.length,
+              sourceSetId: shopItem?.sourceSetId
+            })
+          }
         })
       }
 

@@ -27,17 +27,35 @@ export class AStarGridManager {
   private rows: number = 0
   private originX: number = 0  // tọa độ world của ô lưới (0,0)
   private originY: number = 0
+  private shopBounds = { x: 0, y: 0, w: 0, h: 0 }
+
+  setShopBounds(x: number, y: number, w: number, h: number) {
+    this.shopBounds = { x, y, w, h }
+  }
+
+  isInside(wx: number, wy: number): boolean {
+    return wx >= this.shopBounds.x && 
+           wx <= this.shopBounds.x + this.shopBounds.w && 
+           wy >= this.shopBounds.y && 
+           wy <= this.shopBounds.y + this.shopBounds.h
+  }
 
   /**
    * Khởi tạo grid từ kích thước shop.
-   * CRITICAL: origin phải khớp chính xác với shopBounds.x/y
+   * CRITICAL: origin phải khớp chính xác với shopBounds.x/y - margin
    */
   initialize(shopX: number, shopY: number, shopW: number, shopH: number) {
-    this.originX = shopX
-    this.originY = shopY
-    this.cols = Math.ceil(shopW / GRID_TILE)
-    // Thêm buffer 128px phía dưới (sidewalk) để NPC spawn và đi vào được
-    this.rows = Math.ceil((shopH + 128) / GRID_TILE)
+    // Thêm margin rộng để cover cả vùng bên ngoài (Gồm cả bãi xe phía trên và vỉa hè phía dưới)
+    const hMargin = 1000
+    const vMarginLower = 512 
+    const vMarginUpper = 256  // Tăng lên để cover toàn bộ North Wall và khoảng trống phía trên
+
+    this.originX = shopX - hMargin
+    this.originY = shopY - vMarginUpper
+    
+    // Safety check: ensure positive dimensions
+    this.cols = Math.max(1, Math.ceil((shopW + hMargin * 2) / GRID_TILE))
+    this.rows = Math.max(1, Math.ceil((shopH + vMarginUpper + vMarginLower) / GRID_TILE))
 
     // Tạo grid rỗng — tất cả walkable
     this.grid = []
@@ -55,23 +73,16 @@ export class AStarGridManager {
   }
 
   /**
-   * Đánh dấu vùng không thể đi từ physics body của Phaser StaticBody.
-   * CRITICAL: Dùng CHÍNH XÁC body.x, body.y, body.width, body.height
-   * KHÔNG dùng sprite.getBounds() vì nó dùng visual bounds (to hơn)
+   * Đánh dấu vật cản theo tọa độ world
    */
-  markObstacleFromBody(body: Phaser.Physics.Arcade.StaticBody) {
-    // Tọa độ world của physics body (chính xác, không bị scale visual)
-    const wx = body.x
-    const wy = body.y
-    const ww = body.width
-    const wh = body.height
+  markObstacle(wx: number, wy: number, ww: number, wh: number) {
+    // Safety check: prevent NaN or undefined crashes
+    if (isNaN(wx) || isNaN(wy) || isNaN(ww) || isNaN(wh)) return
 
-    // Chuyển sang chỉ số grid
-    // KHÔNG Math.round — dùng floor/ceil để không làm to vùng cấm
-    const c0 = Math.floor((wx - this.originX) / GRID_TILE)
-    const r0 = Math.floor((wy - this.originY) / GRID_TILE)
-    const c1 = Math.ceil((wx + ww - this.originX) / GRID_TILE)
-    const r1 = Math.ceil((wy + wh - this.originY) / GRID_TILE)
+    const c0 = Math.max(0, Math.floor((wx - this.originX) / GRID_TILE))
+    const r0 = Math.max(0, Math.floor((wy - this.originY) / GRID_TILE))
+    const c1 = Math.min(this.cols, Math.ceil((wx + ww - this.originX) / GRID_TILE))
+    const r1 = Math.min(this.rows, Math.ceil((wy + wh - this.originY) / GRID_TILE))
 
     for (let r = r0; r < r1; r++) {
       for (let c = c0; c < c1; c++) {
@@ -80,6 +91,22 @@ export class AStarGridManager {
         }
       }
     }
+  }
+
+  /**
+   * Đánh dấu vùng không thể đi từ physics body của Phaser StaticBody.
+   * CRITICAL: Dùng CHÍNH XÁC body.x, body.y, body.width, body.height
+   * KHÔNG dùng sprite.getBounds() vì nó dùng visual bounds (to hơn)
+   */
+  markObstacleFromBody(body: Phaser.Physics.Arcade.StaticBody) {
+    this.markObstacle(body.x, body.y, body.width, body.height)
+  }
+
+  isWalkable(wx: number, wy: number): boolean {
+    const c = Math.floor((wx - this.originX) / GRID_TILE)
+    const r = Math.floor((wy - this.originY) / GRID_TILE)
+    if (!this.inBounds(c, r)) return false
+    return this.grid[r][c].walkable
   }
 
   /**
@@ -99,15 +126,30 @@ export class AStarGridManager {
    * Trả về mảng WorldPoint (tâm ô lưới) hoặc null nếu không tìm được đường
    */
   findPath(fromWorld: WorldPoint, toWorld: WorldPoint): WorldPoint[] | null {
-    const startC = Math.floor((fromWorld.x - this.originX) / GRID_TILE)
-    const startR = Math.floor((fromWorld.y - this.originY) / GRID_TILE)
-    const goalC  = Math.floor((toWorld.x  - this.originX) / GRID_TILE)
-    const goalR  = Math.floor((toWorld.y  - this.originY) / GRID_TILE)
+    let startC = Math.floor((fromWorld.x - this.originX) / GRID_TILE)
+    let startR = Math.floor((fromWorld.y - this.originY) / GRID_TILE)
+    let goalC  = Math.floor((toWorld.x  - this.originX) / GRID_TILE)
+    let goalR  = Math.floor((toWorld.y  - this.originY) / GRID_TILE)
 
-    if (!this.inBounds(startC, startR) || !this.inBounds(goalC, goalR)) return null
+    if (!this.inBounds(startC, startR) || !this.inBounds(goalC, goalR)) {
+      console.warn(`[AStar] Out of bounds: Start(${startC},${startR}) Goal(${goalC},${goalR})`)
+      return null
+    }
+
+    // --- START POINT CORRECTION ---
+    // 🆕 ZONE AWARE SNAP: Nếu điểm xuất phát kẹt, tìm ô gần nhất TRONG CÙNG VÙNG (Trong/Ngoài Shop)
+    if (!this.grid[startR][startC].walkable) {
+      const isStartInside = this.isInside(fromWorld.x, fromWorld.y)
+      const alt = this.findNearestWalkable(startC, startR, isStartInside ? 'inside' : 'outside')
+      if (alt) {
+        startC = alt.x; startR = alt.y
+      }
+    }
+
+    // --- GOAL POINT CORRECTION ---
     if (!this.grid[goalR][goalC].walkable) {
-      // Nếu đích không walkable, tìm ô walkable gần nhất làm đích thay thế
-      const alt = this.findNearestWalkable(goalC, goalR)
+      const isGoalInside = this.isInside(toWorld.x, toWorld.y)
+      const alt = this.findNearestWalkable(goalC, goalR, isGoalInside ? 'inside' : 'outside')
       if (!alt) return null
       return this.findPath(fromWorld, this.gridToWorld(alt.x, alt.y))
     }
@@ -203,12 +245,25 @@ export class AStarGridManager {
   }
 
   /** Tìm ô walkable gần nhất (BFS) */
-  private findNearestWalkable(c: number, r: number): { x: number, y: number } | null {
+  private findNearestWalkable(c: number, r: number, zone?: 'inside' | 'outside'): { x: number, y: number } | null {
     const queue = [{ x: c, y: r }]
     const visited = new Set<string>([`${c},${r}`])
     while (queue.length > 0) {
       const cur = queue.shift()!
-      if (this.grid[cur.y]?.[cur.x]?.walkable) return cur
+      const node = this.grid[cur.y]?.[cur.x]
+      
+      if (node?.walkable) {
+        if (zone) {
+          const world = this.gridToWorld(cur.x, cur.y)
+          const nodeInside = this.isInside(world.x, world.y)
+          if ((zone === 'inside' && nodeInside) || (zone === 'outside' && !nodeInside)) {
+            return cur
+          }
+        } else {
+          return cur
+        }
+      }
+
       for (const { dc, dr } of [{ dc:0,dr:-1 },{ dc:0,dr:1 },{ dc:-1,dr:0 },{ dc:1,dr:0 }]) {
         const nx = cur.x + dc, ny = cur.y + dr
         const k = `${nx},${ny}`

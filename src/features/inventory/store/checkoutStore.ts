@@ -1,5 +1,6 @@
-// checkoutStore.ts
 import { defineStore } from 'pinia'
+import { useCustomerStore } from '../../customer/store/customerStore'
+import { useStatsStore } from '../../stats/store/statsStore'
 
 export type PaymentMethod = 'CASH' | 'CARD'
 
@@ -251,9 +252,8 @@ export const useCheckoutStore = defineStore('checkout', {
     completeCheckout() {
       if (!this.customerInstanceId) return
 
-      // Import lazy để tránh circular dependency
-      const { useCustomerStore } = require('../../customer/store/customerStore')
-      const { useStatsStore } = require('../../stats/store/statsStore')
+      // Removed require - using top-level import to fix Vite crash
+
 
       const customerStore = useCustomerStore()
       const statsStore = useStatsStore()

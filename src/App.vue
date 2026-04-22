@@ -26,6 +26,7 @@ import { useEventStore } from './features/events/store/eventStore'
 import { useUIStore } from './features/shop-ui/store/uiStore'
 import ManageEventApp from './features/events/components/ManageEventApp.vue'
 import CheckoutModal from './features/inventory/components/CheckoutModal.vue'
+import PocketModal from './features/inventory/components/PocketModal.vue'
 
 import { useStatsStore } from './features/stats/store/statsStore'
 import { useInventoryStore } from './features/inventory/store/inventoryStore'
@@ -35,6 +36,7 @@ import { useDeliveryStore } from './features/inventory/store/deliveryStore'
 import { useStaffStore } from './features/staff/store/staffStore'
 import { usePlayerHandStore } from './features/inventory/store/playerHandStore'
 import { useTradeInStore } from './features/inventory/store/tradeInStore'
+import { usePlayerPocketStore } from './features/inventory/store/playerPocketStore'
 import { eventBus, EVENTS } from './features/shared/EventBus'
 
 const store = useGameStore()
@@ -49,6 +51,7 @@ const tradeInStore = useTradeInStore()
 const gradingStore = useGradingStore()
 const eventStore = useEventStore()
 const uiStore = useUIStore()
+const pocketStore = usePlayerPocketStore()
 
 
 onMounted(() => {
@@ -78,6 +81,7 @@ onMounted(() => {
   tradeInStore.$subscribe(saveCallback, { deep: true })
   gradingStore.$subscribe(saveCallback, { deep: true })
   eventStore.$subscribe(saveCallback, { deep: true })
+  pocketStore.$subscribe(saveCallback, { deep: true })
 
 
   // Lắng nghe sự kiện từ NPC AI (Phaser -> Vue)
@@ -112,6 +116,7 @@ onMounted(() => {
     <GradingReveal />
     <ManageEventApp :is-open="uiStore.showManageEvent" @close="uiStore.showManageEvent = false" />
     <CheckoutModal />
+    <PocketModal />
   </div>
 
 </template>

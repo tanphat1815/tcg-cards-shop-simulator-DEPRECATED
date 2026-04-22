@@ -11,12 +11,21 @@ import { useApiStore } from '../../inventory/store/apiStore'
 import { eventBus } from '../../shared/EventBus'
 import { CustomerAgent } from './CustomerFSM'
 import type { CustomerIntent, CustomerData } from '../types'
+import { aStarGrid, type WorldPoint } from '../../environment/managers/AStarGridManager'
 
 export class NPCManager {
   private scene: Phaser.Scene
   private environmentManager: EnvironmentManager
   private agents: Map<string, CustomerAgent> = new Map()
   private unsubscribers: (() => void)[] = []
+  private lastSpawnTime = 0
+  private spawnInterval = 3000 // Tăng lên 3s một người
+  private MAX_WAITING_CUSTOMERS = 10
+  private _queueSlots: WorldPoint[] = []
+
+  public get queueSlots(): WorldPoint[] {
+    return this._queueSlots
+  }
 
   constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager) {
     this.scene = scene
@@ -53,6 +62,15 @@ export class NPCManager {
     const gameStore = useGameStore()
     if (gameStore.shopState !== 'OPEN' || gameStore.timeInMinutes >= 1200) return
     if (this.agents.size >= 15) return
+    
+    // Ràng buộc 🆕: Nếu hàng chờ quá dài thì không cho khách mới vào để tránh kẹt
+    if (gameStore.waitingCustomers >= this.MAX_WAITING_CUSTOMERS) {
+      // console.log('[NPCManager] Queue full, skipping spawn.')
+      return
+    }
+
+    const agentsArr = Array.from(this.agents.values())
+    const activeSeller = agentsArr.find(a => a.data.intent === 'SELL')
 
     const doorLocation = this.environmentManager.getDoorLocation()
     const pool = AppConfig.ASSETS.NPC_POOLS
@@ -72,8 +90,14 @@ export class NPCManager {
     // Xác định Intent
     const rand = Math.random()
     let intent: CustomerIntent = 'BUY'
-    if (rand < 0.25) intent = 'PLAY'
-    else if (rand < 0.40) intent = 'SELL'
+    
+    // Giảm tỷ lệ NPC vào shop để thu mua thẻ lẻ (SELL intent) xuống mức thấp hơn (~5%)
+    // Và chỉ cho phép spawn nếu chưa có ai đang đợi thu mua
+    if (rand < 0.25) {
+      intent = 'PLAY'
+    } else if (rand < 0.30 && !activeSeller) {
+      intent = 'SELL'
+    }
     
     if (intent === 'SELL' && useStatsStore().level < 5) intent = 'BUY'
 
@@ -108,6 +132,59 @@ export class NPCManager {
 
     const agent = new CustomerAgent(this.scene, data)
     this.agents.set(instanceId, agent)
+  }
+
+  /**
+   * Tính toán lại đường đi của hàng đợi (Cơ chế Dynamic Snake)
+   * Giúp hàng đợi tự né tránh nội thất.
+   */
+  public recalculateQueuePath(cashierPos: WorldPoint) {
+    this._queueSlots = []
+    
+    // Điểm bắt đầu xếp hàng (ngay trước quầy, cách 48px thay vì 60px để gần hơn)
+    const startX = cashierPos.x
+    const startY = cashierPos.y + 48
+    
+    const SLOT_SPACING = 40 // Pixel giữa mỗi người
+
+    // Thử dùng điểm đầu tiên nếu nó Walkable
+    if (aStarGrid.isWalkable(startX, startY)) {
+      this._queueSlots.push({ x: startX, y: startY })
+    }
+
+    let currentX = this._queueSlots.length > 0 ? startX : cashierPos.x
+    let currentY = this._queueSlots.length > 0 ? startY : cashierPos.y + 48
+
+    for (let i = this._queueSlots.length; i < this.MAX_WAITING_CUSTOMERS; i++) {
+       const candidates = [
+         { x: currentX, y: currentY + SLOT_SPACING }, // DOWN
+         { x: currentX + SLOT_SPACING, y: currentY }, // RIGHT
+         { x: currentX - SLOT_SPACING, y: currentY }, // LEFT
+         { x: currentX, y: currentY - SLOT_SPACING }, // UP
+       ]
+
+       let found = false
+       for (const cand of candidates) {
+         if (aStarGrid.isWalkable(cand.x, cand.y)) {
+            const isOverlap = this._queueSlots.some(s => Phaser.Math.Distance.Between(s.x, s.y, cand.x, cand.y) < 20)
+            if (!isOverlap) {
+              this._queueSlots.push({ x: cand.x, y: cand.y })
+              currentX = cand.x
+              currentY = cand.y
+              found = true
+              break
+            }
+         }
+       }
+
+       if (!found) break
+    }
+
+    console.log(`[NPCManager] Recalculated queue path: ${this._queueSlots.length} slots found.`)
+  }
+
+  public getWaitSlot(index: number): WorldPoint | null {
+    return this._queueSlots[index] || null
   }
 
   private removeNPCDirectly(id: string) {

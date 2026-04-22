@@ -288,6 +288,7 @@ class SeekCheckoutState implements IState<ICustomerAgent> {
   name = 'SEEK_CHECKOUT'
   onEnter(agent: ICustomerAgent) {
     agent.updateStatus('🛒 To Cashier')
+    // Đảm bảo chỉ đăng ký vào hàng chờ một lần
     agent.gameStore.addWaitingCustomer(agent.data.targetPrice, agent.data.instanceId)
     this.goToQueuePosition(agent)
   }
@@ -299,13 +300,27 @@ class SeekCheckoutState implements IState<ICustomerAgent> {
   }
 
   private goToQueuePosition(agent: ICustomerAgent) {
-    const cashiers = Object.values(agent.gameStore.placedCashiers) as any[]
-    if (cashiers.length === 0) return
-    const cashier = cashiers[0] 
+    const npcManager = (agent.scene as any).npcManager
+    if (!npcManager) return
+    
     const queueIndex = agent.gameStore.waitingQueue.findIndex((q: any) => q.instanceId === agent.data.instanceId)
-    const tx = cashier.x
-    const ty = cashier.y + 60 + (queueIndex * 40)
-    agent.locomotion.moveTo(tx, ty)
+    if (queueIndex === -1) return
+
+    // 🆕 FETCH DYNAMIC SLOT
+    const slot = npcManager.getWaitSlot(queueIndex)
+    if (slot) {
+      agent.locomotion.moveTo(slot.x, slot.y)
+    } else {
+      // Fallback nếu không tính được slot (do bị kẹt nội thất hoặc quá đông)
+      // Tìm tạm 1 điểm ngẫu nhiên gần Cashier để đứng thay vì đứng im tại chỗ
+      const cashiers = Object.values(agent.gameStore.placedCashiers) as any[]
+      if (cashiers.length > 0) {
+        const c = cashiers[0]
+        const rx = c.x + (Math.random() * 100 - 50)
+        const ry = c.y + 100 + (Math.random() * 50)
+        agent.locomotion.moveTo(rx, ry)
+      }
+    }
   }
 
   onExit() {}
@@ -325,13 +340,19 @@ class QueuingState implements IState<ICustomerAgent> {
        return
     }
 
-    // Nếu vị trí hàng đợi thay đổi (người trước đi rồi) -> Tiến lên
-    const cashiers = Object.values(agent.gameStore.placedCashiers) as any[]
-    if (cashiers.length > 0) {
-      const cashier = cashiers[0]
-      const expectedY = cashier.y + 60 + (queueIndex * 40)
-      if (Math.abs(agent.sprite.y - expectedY) > 5) {
-        agent.fsm.transition('SEEK_CHECKOUT')
+    // Nếu vị trí hàng đợi thay đổi (người trước đi rồi hoặc furniture cản đường) -> Tiến lên
+    const npcManager = (agent.scene as any).npcManager
+    if (npcManager) {
+      const slot = npcManager.getWaitSlot(queueIndex)
+      if (slot) {
+        const dist = Phaser.Math.Distance.Between(agent.sprite.x, agent.sprite.y, slot.x, slot.y)
+        // Tăng ngưỡng khoảng cách để tránh nhân viên bị 'giật'
+        if (dist > 15) {
+          agent.fsm.transition('SEEK_CHECKOUT')
+        }
+      } else {
+          // 🆕 Nếu slot biến mất (do ai đó dời kệ vào), thử SEEK lại để tìm fallback mới
+          if (Math.random() < 0.01) agent.fsm.transition('SEEK_CHECKOUT')
       }
     }
   }
@@ -499,11 +520,7 @@ class TradeInWaitingState implements IState<ICustomerAgent> {
   onEnter(agent: ICustomerAgent) {
     agent.updateStatus('🃏 Offering Card')
     agent.locomotion.stop()
-    // Emit sự kiện để Vue hiện Modal (nếu Player đứng gần)
-    eventBus.emit(EVENTS.NPC_TRADE_REQUEST, { 
-      instanceId: agent.data.instanceId, 
-      cardId: agent.data.tradeCardId 
-    })
+    // Emit sự kiện đã bị loại bỏ -> Sẽ mở qua handlePlayerInteraction (MainScene.ts)
   }
   onUpdate() {}
   onExit() {}
@@ -515,6 +532,9 @@ class LeaveState implements IState<ICustomerAgent> {
   private stage = 0
   onEnter(agent: ICustomerAgent) {
     agent.updateStatus('👋 Leaving')
+    // Xóa khỏi hàng chờ (nếu đang ở trong hàng)
+    agent.gameStore.removeCustomerFromQueue(agent.data.instanceId)
+
     // Xóa trade icon
     if (agent.data.tradeIcon) { agent.data.tradeIcon.destroy(); agent.data.tradeIcon = undefined; }
     

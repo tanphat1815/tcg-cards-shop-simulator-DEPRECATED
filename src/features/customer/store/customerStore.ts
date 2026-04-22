@@ -38,6 +38,9 @@ export const useCustomerStore = defineStore('customer', {
      * @param instanceId ID của NPC khách hàng
      */
     addWaitingCustomer(price: number, instanceId: string) {
+      if (this.waitingQueue.some(q => q.instanceId === instanceId)) {
+        return // Đã có trong hàng chờ, không thêm trùng
+      }
       this.waitingQueue.push({ 
         instanceId, 
         price, 
