@@ -1619,3 +1619,46 @@ Patch MainScene.ts (khởi tạo grid + refreshAStarGrid)
 Patch App.vue (EventBus listeners)
 
 Điều quan trọng nhất: Tất cả business logic cũ (trade-in, event fee, play area, queue management) đã được giữ nguyên và chuyển vào các IState tương ứng trong CustomerFSM.ts. Không có feature nào bị mất.
+
+
+# Walkthrough - NPC AI Upgrade (A* & FSM)
+
+The NPC AI system has been completely refactored from a physics-based approach to a structured architecture using **A* Pathfinding**, **FSM (Finite State Machine)**, and **Tween Locomotion**.
+
+## Key Changes
+
+### 1. Advanced Navigation
+- **A* Pathfinding**: Implemented in [AStarGridManager.ts](file:///f:/Phatnt-sources/tcg-cards-shop-webpage/src/features/environment/managers/AStarGridManager.ts).
+- **Grid-based Environment**: [MainScene.ts](file:///f:/Phatnt-sources/tcg-cards-shop-webpage/src/game/MainScene.ts) now initializes a 16px navigation grid.
+- **Dynamic Obstacles**: The grid automatically refreshes whenever furniture (shelves, tables, desks) is placed, moved, or removed.
+
+### 2. Behavioral Architecture (FSM)
+- **Decentralized AI**: Individual NPC logic is now managed by [CustomerFSM.ts](file:///f:/Phatnt-sources/tcg-cards-shop-webpage/src/features/customer/managers/CustomerFSM.ts) (for customers) and [StaffManager.ts](file:///f:/Phatnt-sources/tcg-cards-shop-webpage/src/features/staff/managers/StaffManager.ts) (for staff).
+- **Extensible States**: New states can be added easily by extending the [StateMachine](file:///f:/Phatnt-sources/tcg-cards-shop-webpage/src/features/shared/StateMachine.ts) base class.
+
+### 3. Precise Locomotion
+- **Tween Timelines**: Replaced physics velocity with fixed-path tweening in [NPCLocomotion.ts](file:///f:/Phatnt-sources/tcg-cards-shop-webpage/src/features/customer/managers/NPCLocomotion.ts).
+- **Perfect Alignment**: NPCs now move precisely from tile center to tile center, preventing clipping through furniture corners.
+
+### 4. System Integration
+- **EventBus**: Established a type-safe [EventBus.ts](file:///f:/Phatnt-sources/tcg-cards-shop-webpage/src/features/shared/EventBus.ts) for bi-directional communication between Phaser AI and Vue UI.
+- **Vue UI**: [App.vue](file:///f:/Phatnt-sources/tcg-cards-shop-webpage/src/App.vue) is now synchronized with AI events (e.g., Trade-In requests).
+
+## Verification Results
+
+### Automated Build
+> [!IMPORTANT]
+> A full build (`npm run build`) was executed successfully after the refactor. All TypeScript errors and store integration issues were resolved.
+
+```bash
+✓ built in 2.25s
+dist/assets/index-Cc8dSYCG.js           1,570.90 kB │ gzip: 446.80 kB
+```
+
+### Feature Checklist
+- [x] **Customer Spawning**: Correctly spawns with random intents.
+- [x] **Buying Logic**: Navigates to shelves, picks items, and queues at the cashier.
+- [x] **Playing Logic**: Finds empty tables, waits for opponents, and pays event fees.
+- [x] **Trade-In Logic**: Approaches the counter and triggers the Trade-In modal in Vue.
+- [x] **Staff Restocking**: Navigates through obstacles to pick boxes and fill shelves.
+- [x] **Obstacle Handling**: NPCs and Staff reroute correctly when furniture layout changes.
