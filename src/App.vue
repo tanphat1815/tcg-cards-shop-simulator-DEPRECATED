@@ -25,6 +25,7 @@ import { useGradingStore } from './features/grading/store/gradingStore'
 import { useEventStore } from './features/events/store/eventStore'
 import { useUIStore } from './features/shop-ui/store/uiStore'
 import ManageEventApp from './features/events/components/ManageEventApp.vue'
+import CheckoutModal from './features/inventory/components/CheckoutModal.vue'
 
 import { useStatsStore } from './features/stats/store/statsStore'
 import { useInventoryStore } from './features/inventory/store/inventoryStore'
@@ -110,6 +111,7 @@ onMounted(() => {
     <GradingServiceApp :is-open="gradingStore.showGradingApp" @close="gradingStore.setShowGradingApp(false)" />
     <GradingReveal />
     <ManageEventApp :is-open="uiStore.showManageEvent" @close="uiStore.showManageEvent = false" />
+    <CheckoutModal />
   </div>
 
 </template>

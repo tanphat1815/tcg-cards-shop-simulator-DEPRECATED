@@ -123,8 +123,36 @@ export const useGameStore = defineStore('game', {
     // --- Shop Logistics & NPC Interaction ---
     /** Mở/Đóng cửa hàng */
     setShopState(newState: 'OPEN' | 'CLOSED') { useCustomerStore().setShopState(newState) },
-    /** Phục vụ khách hàng tại quầy thu ngân */
+    /** Phục vụ khách hàng tại quầy thu ngân (Hành động chung) */
     serveCustomer() { return useCustomerStore().serveCustomer() },
+    
+    // --- Manual vs Auto Checkout ---
+
+    /**
+     * Manual checkout dành riêng cho Player.
+     * Mở CheckoutModal với thông tin khách đầu hàng đợi.
+     */
+    openManualCheckout() {
+      const customerStore = useCustomerStore()
+      const { useCheckoutStore } = require('../../inventory/store/checkoutStore') // lazy import
+
+      if (customerStore.waitingQueue.length === 0) return
+
+      const nextCustomer = customerStore.waitingQueue[0]
+      const checkoutStore = useCheckoutStore()
+
+      // Mở modal — KHÔNG xóa khách khỏi queue ngay
+      // Queue sẽ được xóa trong checkoutStore.completeCheckout()
+      checkoutStore.openCheckout(nextCustomer.price, nextCustomer.instanceId)
+    },
+
+    /**
+     * Auto checkout dành cho Staff AI.
+     * Chạy ngầm — KHÔNG mở bất kỳ UI nào.
+     */
+    processAutoCheckout() {
+      return useCustomerStore().serveCustomer()
+    },
     /** Buộc kết thúc ngày (đóng cửa và hiện báo cáo) */
     forceEndDay() { useCustomerStore().forceEndDay() },
     /** Thêm khách hàng vào hàng chờ thanh toán */

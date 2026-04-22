@@ -740,10 +740,10 @@ export default class MainScene extends Phaser.Scene {
       }
     }
 
-    // Ưu tiên 2: Thanh toán tại quầy
+    // Ưu tiên 2: Thanh toán tại quầy (PLAYER MANUAL)
     let nearestCashier = this.getNearestFromGroup(this.furnitureManager.cashierGroup, 80)
     if (nearestCashier && store.waitingCustomers > 0) {
-      store.serveCustomer()
+      store.openManualCheckout()
       return
     }
 
@@ -840,13 +840,21 @@ export default class MainScene extends Phaser.Scene {
 
     const cooldown = SPEED_TO_MS[workerData.checkoutSpeed]
     if (time > this.lastAutoCheckoutTime + cooldown) {
-      store.serveCustomer()
-      this.lastAutoCheckoutTime = time
-      
-      const cashierSprite = this.staffSprites.get(cashier.instanceId)
-      if (cashierSprite) {
-        const pulse = this.add.text(cashierSprite.x, cashierSprite.y - 40, '💳 Auto', { fontSize: '10px', color: '#ffffff' }).setOrigin(0.5)
-        this.tweens.add({ targets: pulse, y: pulse.y - 20, alpha: 0, duration: 1000, onComplete: () => pulse.destroy() })
+      // Chỉ auto-checkout nếu Player KHÔNG đang mở manual checkout modal
+      // Chúng ta dùng require lazy ở đây để tránh circular dep nếu cần, 
+      // hoặc dùng useCheckoutStore directly nếu environment đã sẵn sàng.
+      const { useCheckoutStore } = require('../features/inventory/store/checkoutStore')
+      const checkoutStore = useCheckoutStore()
+
+      if (!checkoutStore.isOpen) {
+        store.processAutoCheckout()
+        this.lastAutoCheckoutTime = time
+        
+        const cashierSprite = this.staffSprites.get(cashier.instanceId)
+        if (cashierSprite) {
+          const pulse = this.add.text(cashierSprite.x, cashierSprite.y - 40, '💳 Auto', { fontSize: '10px', color: '#ffffff' }).setOrigin(0.5)
+          this.tweens.add({ targets: pulse, y: pulse.y - 20, alpha: 0, duration: 1000, onComplete: () => pulse.destroy() })
+        }
       }
     }
   }
