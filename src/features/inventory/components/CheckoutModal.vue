@@ -2,6 +2,7 @@
 import { computed, watch } from 'vue'
 import { useCheckoutStore } from '../store/checkoutStore'
 import { useCustomerStore } from '../../customer/store/customerStore'
+import { formatUSD } from '../../shared/utils/currency'
 import CashRegister from './CashRegister.vue'
 import CreditCardPOS from './CreditCardPOS.vue'
 
@@ -117,7 +118,7 @@ const customerCount = computed(() => {
                 <div class="monitor-row remaining" v-if="!checkoutStore.canConfirmCash">
                   <span class="monitor-label">REMAINING</span>
                   <span class="monitor-value remaining-val">
-                    ${{ (Math.max(0, checkoutStore.changeRemainingCents) / 100).toFixed(2) }}
+                    {{ formatUSD(Math.max(0, checkoutStore.changeRemainingCents) / 100) }}
                   </span>
                 </div>
               </div>

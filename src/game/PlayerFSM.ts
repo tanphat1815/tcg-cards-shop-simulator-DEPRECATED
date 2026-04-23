@@ -10,6 +10,7 @@
  *   WALK → IDLE  : all movement keys released
  */
 import Phaser from 'phaser'
+import { GAME_BALANCE } from '../config/gameConfig'
 
 export type PlayerFacing = 'down' | 'up' | 'left' | 'right'
 
@@ -32,7 +33,7 @@ export class PlayerFSM {
   constructor(
     sprite: Phaser.Physics.Arcade.Sprite,
     cursors: CursorKeys,
-    speed: number = 160,
+    speed: number = GAME_BALANCE.PLAYER.BASE_SPEED,
     prefix: string = 'player'
   ) {
     this.sprite  = sprite

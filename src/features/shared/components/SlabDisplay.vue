@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { GradedCard } from '../../inventory/types'
 import { GRADE_TABLE } from '../../grading/config'
 import TcgCard from './TcgCard.vue'
+import { formatUSD } from '../utils/currency'
 
 const props = defineProps<{ slab: GradedCard; card: any }>()
 
@@ -11,8 +12,8 @@ const gradeInfo = computed(() => {
 })
 
 const displayPrice = computed(() => {
-  const base = props.card?.pricing?.tcgplayer?.normal?.marketPrice ?? 10 // Fallback price
-  return (base * props.slab.priceMultiplier).toFixed(2)
+  const base = props.card?.pricing?.tcgplayer?.normal?.marketPrice ?? 10
+  return base * props.slab.priceMultiplier
 })
 </script>
 
@@ -31,7 +32,7 @@ const displayPrice = computed(() => {
     </div>
 
     <!-- Price -->
-    <div class="slab-price">${{ displayPrice }}</div>
+    <div class="slab-price">{{ formatUSD(displayPrice) }}</div>
 
     <!-- Golden glow cho grade 10 -->
     <div v-if="slab.grade === 10" class="golden-glow"></div>

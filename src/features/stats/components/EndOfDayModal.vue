@@ -7,6 +7,7 @@ import { useGameStore } from '../../shop-ui/store/gameStore'
 import { useStatsStore } from '../store/statsStore'
 import BaseModal from '../../shared/components/BaseModal.vue'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
+import { formatUSD } from '../../shared/utils/currency'
 
 const gameStore = useGameStore()
 const statsStore = useStatsStore()
@@ -36,7 +37,7 @@ const statsStore = useStatsStore()
 
         <div class="flex justify-between items-center bg-gray-900/50 p-4 rounded-xl border border-gray-700/50">
           <span class="text-gray-300 font-medium">Doanh thu trong ngày</span>
-          <span class="text-2xl font-black text-yellow-500">+${{ statsStore.dailyStats.revenue.toFixed(2) }}</span>
+          <span class="text-2xl font-black text-yellow-500">+{{ formatUSD(statsStore.dailyStats.revenue) }}</span>
         </div>
       </div>
     </template>

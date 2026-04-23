@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { useCustomerStore } from '../../customer/store/customerStore'
 import { useStatsStore } from '../../stats/store/statsStore'
+import { formatUSD } from '../../shared/utils/currency'
 
 export type PaymentMethod = 'CASH' | 'CARD'
 
@@ -90,12 +91,12 @@ export const useCheckoutStore = defineStore('checkout', {
     },
 
     // Helpers hiển thị (formatted strings)
-    billTotalDisplay: (state): string => `$${(state.billTotalCents / 100).toFixed(2)}`,
-    cashGivenDisplay: (state): string => `$${(state.cashGivenCents / 100).toFixed(2)}`,
+    billTotalDisplay: (state): string => formatUSD(state.billTotalCents / 100),
+    cashGivenDisplay: (state): string => formatUSD(state.cashGivenCents / 100),
     changeOwedDisplay(): string {
-      return `$${(this.changeOwedCents / 100).toFixed(2)}`
+      return formatUSD(this.changeOwedCents / 100)
     },
-    changePreparedDisplay: (state): string => `$${(state.changePreparedCents / 100).toFixed(2)}`,
+    changePreparedDisplay: (state): string => formatUSD(state.changePreparedCents / 100),
   },
 
   actions: {

@@ -14,6 +14,7 @@ import { DEPTH } from '../../environment/config'
 import { eventBus } from '../../shared/EventBus'
 import type { CustomerData } from '../types'
 import { updateDropShadow } from '../../environment/ySortUtils'
+import { GAME_BALANCE } from '../../../config/gameConfig'
 
 /** Interface mở rộng cho Customer Agency */
 export interface ICustomerAgent {
@@ -43,9 +44,11 @@ export class CustomerAgent implements ICustomerAgent {
   public fsm: StateMachine<ICustomerAgent>
   public data: CustomerData
   public statusText: Phaser.GameObjects.Text
-  
   public gameStore = useGameStore()
   public statsStore = useStatsStore()
+
+  private lastPosition = { x: 0, y: 0 }
+  private lastStuckCheckTime = 0
 
   constructor(scene: Phaser.Scene, data: CustomerData) {
     this.scene = scene
@@ -63,6 +66,9 @@ export class CustomerAgent implements ICustomerAgent {
     }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
 
     this.setupFSM()
+    
+    this.lastPosition = { x: this.sprite.x, y: this.sprite.y }
+    this.lastStuckCheckTime = this.scene.time.now
   }
 
   private setupFSM() {
@@ -96,6 +102,20 @@ export class CustomerAgent implements ICustomerAgent {
     // Shadow update
     if (this.data.shadow) {
        updateDropShadow(this.data.shadow, this.sprite, { radiusX: 11, radiusY: 5 })
+       if (!this.data.shadow.visible) this.data.shadow.setVisible(true)
+    }
+
+    // ANTI-STUCK LOGIC
+    if (time > this.lastStuckCheckTime + GAME_BALANCE.NPC.STUCK_CHECK_DELAY_MS) {
+       const dist = Phaser.Math.Distance.Between(this.sprite.x, this.sprite.y, this.lastPosition.x, this.lastPosition.y)
+       if (this.locomotion.isMoving && dist < 2) {
+          console.warn(`[CustomerFSM] NPC ${this.data.instanceId} stuck detected. Resetting to WANDER.`)
+          if (this.fsm.current !== 'LEAVE' && this.fsm.current !== 'SPAWN') {
+             this.fsm.transition('WANDER')
+          }
+       }
+       this.lastPosition = { x: this.sprite.x, y: this.sprite.y }
+       this.lastStuckCheckTime = time
     }
   }
 
@@ -109,9 +129,21 @@ export class CustomerAgent implements ICustomerAgent {
 
   destroy() {
     this.statusText.destroy()
-    if (this.data.tradeIcon) this.data.tradeIcon.destroy()
-    this.sprite.destroy()
-    if (this.data.shadow) this.data.shadow.destroy()
+    if (this.data.tradeIcon) {
+       this.scene.tweens.killTweensOf(this.data.tradeIcon)
+       this.data.tradeIcon.destroy()
+       this.data.tradeIcon = undefined
+    }
+    
+    // OBJECT POOLING: Deactivate sprite instead of destroying it
+    this.sprite.setActive(false).setVisible(false)
+    if (this.sprite.body) this.sprite.body.enable = false
+    
+    // We destroy shadows for now as they are cheap Graphics, but could be pooled later
+    if (this.data.shadow) {
+       this.data.shadow.destroy()
+       this.data.shadow = undefined
+    }
   }
 }
 
@@ -150,8 +182,8 @@ class WanderState implements IState<ICustomerAgent> {
   }
 
   onUpdate(agent: ICustomerAgent, time: number) {
-    // Logic Boredom - về nếu chờ quá 45s
-    if (time - (agent.data.spawnTime || 0) > 45000) {
+    // Logic Boredom - về nếu chờ quá X ms
+    if (time - (agent.data.spawnTime || 0) > GAME_BALANCE.NPC.BOREDOM_TIMEOUT_MS) {
       agent.leaveShop()
       return
     }
@@ -175,9 +207,25 @@ class WanderState implements IState<ICustomerAgent> {
       if (foundShelf) {
         agent.data.targetShelfId = foundShelf.id
         agent.fsm.transition('SEEK_ITEM')
-      } else if (Math.random() < 0.05) {
-        // 5% cơ hội rời đi nếu không tìm thấy gì sau mỗi nhịp decision
-        agent.leaveShop()
+      } else {
+        // Nếu không tìm thấy kệ có hàng nào trong toàn bộ shop
+        const anySelling = shelves.some(s => 
+          (s.role === 'selling' || s.role === 'display_case') &&
+          s.tiers.some((t: any) => t.slots.some((sl: any) => sl !== null))
+        )
+        
+        if (!anySelling && agent.data.intent === 'BUY') {
+           // Nếu shop tuyệt đối không còn gì để mua, khách mua đồ rời đi rất nhanh (80% cơ hội)
+           if (Math.random() < 0.8) {
+              agent.leaveShop()
+              return
+           }
+        }
+        
+        // Random 5% rời đi bình thường (dành cho khi shop còn hàng nhưng NPC lười tìm)
+        if (Math.random() < 0.05) {
+          agent.leaveShop()
+        }
       }
     }
 
@@ -256,7 +304,15 @@ class InteractState implements IState<ICustomerAgent> {
       const itemId = agent.gameStore.npcTakeItemFromSlot(shelfId!)
       if (itemId) {
         const itemData = agent.gameStore.shopItems[itemId]
-        let basePrice = itemData ? itemData.sellPrice : 15
+        
+        if (!itemData) {
+          console.error(`[CustomerFSM] Item data not found for ID: ${itemId}. Abandoning buy.`)
+          agent.data.checkedShelfIds.push(shelfId!)
+          agent.fsm.transition('WANDER')
+          return
+        }
+
+        let basePrice = itemData.sellPrice
         
         // Event Multiplier
         let eventMultiplier = 1.0
@@ -284,7 +340,17 @@ class InteractState implements IState<ICustomerAgent> {
      const popup = agent.scene.add.text(agent.sprite.x, agent.sprite.y - 40, `+1 ${text} ($${price.toFixed(2)})`, {
         fontSize: '11px', color: '#00ff00', fontStyle: 'bold', backgroundColor: 'rgba(0,0,0,0.5)'
      }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
-     agent.scene.tweens.add({ targets: popup, y: popup.y - 30, alpha: 0, duration: 1500, onComplete: () => popup.destroy() })
+     
+     agent.scene.tweens.add({ 
+        targets: popup, 
+        y: popup.y - 30, 
+        alpha: 0, 
+        duration: 1500, 
+        onComplete: () => {
+           agent.scene.tweens.killTweensOf(popup)
+           popup.destroy()
+        } 
+     })
   }
 
   onExit() {}
@@ -294,6 +360,13 @@ class InteractState implements IState<ICustomerAgent> {
 class SeekCheckoutState implements IState<ICustomerAgent> {
   name = 'SEEK_CHECKOUT'
   onEnter(agent: ICustomerAgent) {
+    // PHÒNG THỦ: Nếu không có gì để thanh toán, rời shop ngay
+    if (agent.data.targetPrice <= 0) {
+      console.warn(`[CustomerFSM] NPC ${agent.data.instanceId} tried to checkout with $0. Leaving instead.`)
+      agent.leaveShop()
+      return
+    }
+
     agent.updateStatus('🛒 To Cashier')
     // Đảm bảo chỉ đăng ký vào hàng chờ một lần
     agent.gameStore.addWaitingCustomer(agent.data.targetPrice, agent.data.instanceId)
@@ -435,17 +508,25 @@ class PlayingState implements IState<ICustomerAgent> {
     if (table.matchStartedAt) {
        agent.updateStatus('🃏 Playing match')
        const elapsed = Date.now() - table.matchStartedAt
-       const duration = 12000 // 12s
        
        if (time % 1000 < 50) {
           const emo = agent.scene.add.text(agent.sprite.x, agent.sprite.y - 40, '🃏', { fontSize: '16px' }).setOrigin(0.5)
-          agent.scene.tweens.add({ targets: emo, y: emo.y - 20, alpha: 0, duration: 800, onComplete: () => emo.destroy() })
+          agent.scene.tweens.add({ 
+             targets: emo, 
+             y: emo.y - 20, 
+             alpha: 0, 
+             duration: 800, 
+             onComplete: () => {
+                agent.scene.tweens.killTweensOf(emo)
+                emo.destroy()
+             }
+          })
        }
 
-       if (elapsed >= duration) {
+       if (elapsed >= GAME_BALANCE.TIMING.MATCH_DURATION_MS) {
           if (agent.data.seatIndex === 0) {
              agent.gameStore.finishMatch(table.id)
-             agent.gameStore.gainExp(50)
+             agent.gameStore.gainExp(GAME_BALANCE.ECONOMY.MATCH_EXP_GAIN)
           }
           this.checkCheckout(agent)
        }
@@ -457,7 +538,7 @@ class PlayingState implements IState<ICustomerAgent> {
   }
 
   private checkCheckout(agent: ICustomerAgent) {
-     const fee = 5 // Hardcode entry fee
+     const fee = GAME_BALANCE.ECONOMY.ENTRY_EVENT_FEE
      agent.data.targetPrice = fee
      agent.fsm.transition('GO_CASHIER_EVENT')
   }

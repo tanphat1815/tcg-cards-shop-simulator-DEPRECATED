@@ -37,6 +37,7 @@ import { aStarGrid } from '../features/environment/managers/AStarGridManager'
 import gymBuildingImg from '../assets/images/gym_building.svg'
 import { AppConfig } from './config/AppConfig'
 import { eventBus, EVENTS } from '../features/shared/EventBus'
+import { GAME_BALANCE } from '../config/gameConfig'
 
 export default class MainScene extends Phaser.Scene {
   // ── Entities ─────────────────────────────────────────────────────────────────
@@ -171,7 +172,7 @@ export default class MainScene extends Phaser.Scene {
     this.setupInputs()
 
     // ── PLAYER FSM ────────────────────────────────────────────────────────────
-    this.playerFSM = new PlayerFSM(this.player, this.cursors, 160, 'player')
+    this.playerFSM = new PlayerFSM(this.player, this.cursors, GAME_BALANCE.PLAYER.BASE_SPEED, 'player')
 
     // ── UI OVERLAY TEXT ───────────────────────────────────────────────────────
     this.setupUI()
@@ -191,7 +192,7 @@ export default class MainScene extends Phaser.Scene {
 
     // Game clock (1 second real = 1 minute game)
     this.time.addEvent({
-      delay: 1000,
+      delay: GAME_BALANCE.TIMING.TICK_MS,
       loop: true,
       callback: () => {
         if (gameStore.shopState === 'OPEN' && !gameStore.isBuildMode && !gameStore.isEditMode) {
@@ -880,7 +881,7 @@ export default class MainScene extends Phaser.Scene {
   private updateGateHints() {
     if (this.isTeleporting) { this.gateHintText.setVisible(false); return }
     const wz          = this.environmentManager.warpGateZone
-    const RADIUS      = 80
+    const RADIUS      = GAME_BALANCE.MAP.TRANSITION_DIST_THRESHOLD
     const distToTown  = Phaser.Math.Distance.Between(this.player.x, this.player.y, wz.x, wz.y)
     const distToShop  = Phaser.Math.Distance.Between(this.player.x, this.player.y, TownManager.TOWN_START_X + 50, 500)
 

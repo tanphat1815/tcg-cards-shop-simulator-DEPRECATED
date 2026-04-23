@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useDeliveryStore } from '../store/deliveryStore'
 import { useInventoryStore } from '../store/inventoryStore'
 import { useFurnitureStore } from '../../furniture/store/furnitureStore'
+import { formatVND, formatUSD } from '../../shared/utils/currency'
 
 const deliveryStore = useDeliveryStore()
 const inventoryStore = useInventoryStore()
@@ -26,7 +27,7 @@ const profitPct = computed(() => {
   return ((customPrice.value / target.value.buyPrice - 1) * 100).toFixed(1)
 })
 
-import { formatVND } from '../../shared/utils/currency'
+// import { formatVND } from '../../shared/utils/currency' (already imported above)
 
 function applyPrice() {
   if (!target.value) return
@@ -88,8 +89,8 @@ function roundPrice() {
             <div class="flex flex-col justify-center gap-1">
               <p class="font-black text-gray-800 text-base leading-tight">{{ target.name }}</p>
               <div class="flex gap-3 text-sm">
-                <span class="text-gray-500">Nhập: <strong class="text-gray-700">${{ target.buyPrice }}</strong></span>
-                <span class="text-blue-600">Market: <strong>${{ target.marketPrice }}</strong></span>
+                <span class="text-gray-500">Nhập: <strong class="text-gray-700">{{ formatUSD(target.buyPrice) }}</strong></span>
+                <span class="text-blue-600">Market: <strong>{{ formatUSD(target.marketPrice) }}</strong></span>
               </div>
             </div>
           </div>
@@ -133,7 +134,7 @@ function roundPrice() {
                   <span
                     class="font-black text-xl"
                     :class="profit >= 0 ? 'text-emerald-600' : 'text-red-500'"
-                  >${{ profit.toFixed(2) }}</span>
+                  >{{ formatUSD(profit) }}</span>
                   <span
                     class="text-xs font-bold ml-2"
                     :class="profit >= 0 ? 'text-emerald-500' : 'text-red-400'"

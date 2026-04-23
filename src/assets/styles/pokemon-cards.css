@@ -1,4 +1,4 @@
-﻿/*
+/*
 
   AMAZING RARE
 
@@ -2812,7 +2812,7 @@ Shine & Glare Effects
 .card[data-rarity="rare ultra"][data-subtypes*="supporter"] .card__shine,
 .card[data-rarity="rare ultra"][data-subtypes*="supporter"] .card__shine:after,
 .card[data-rarity="rare ultra"][data-supertype="trainer"] .card__shine,
-.card[data-rarity="rare ultra"][data-supertype="trainer"] .card__shine:after
+.card[data-rarity="rare ultra"][data-supertype="trainer"] .card__shine:after,
 .card[data-rarity="rare holo v"][data-trainer-gallery="true"] .card__shine,
 .card[data-rarity="rare holo v"][data-trainer-gallery="true"] .card__shine:after {
 

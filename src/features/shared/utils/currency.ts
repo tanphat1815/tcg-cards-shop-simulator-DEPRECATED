@@ -1,10 +1,12 @@
+import { GAME_BALANCE } from '../../../config/gameConfig'
+
 /**
  * Currency and Pricing Utilities
  * Centralized logic for formatting and calculating TCG card prices.
  */
 
 /**
- * Formats a USD price into VND string using a fixed exchange rate (1 USD = 25,000 VND).
+ * Formats a USD price into VND string using a fixed exchange rate.
  * @param priceUsd - The price in US Dollars.
  * @returns A formatted VND currency string.
  */
@@ -13,7 +15,7 @@ export const formatVND = (priceUsd: number): string => {
     style: 'currency', 
     currency: 'VND',
     maximumFractionDigits: 0
-  }).format(priceUsd * 25000)
+  }).format(priceUsd * GAME_BALANCE.ECONOMY.EXCHANGE_RATE_USD_TO_VND)
 }
 
 /**
@@ -21,8 +23,9 @@ export const formatVND = (priceUsd: number): string => {
  * @param price - The price in US Dollars.
  * @returns A formatted USD string (e.g., "$12.34").
  */
-export const formatUSD = (price: number): string => {
-  return `$${Number(price).toFixed(2)}`
+export const formatUSD = (price: number | string): string => {
+  const num = typeof price === 'string' ? parseFloat(price) : price
+  return `$${num.toFixed(2)}`
 }
 
 /**

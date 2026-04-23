@@ -13,7 +13,7 @@ import { getPackVisuals, getBoxVisuals, hasCustomVisual } from '../config/assetR
 import { useCartStore } from '../store/cartStore'
 import AddToCartModal from './AddToCartModal.vue'
 
-import { formatVND } from '../../shared/utils/currency'
+import { formatVND, formatUSD } from '../../shared/utils/currency'
 
 const gameStore = useGameStore()
 const statsStore = useStatsStore()
@@ -138,7 +138,7 @@ const handleImageError = (id: string) => {
           <p class="text-indigo-200 text-sm font-medium">Đối tác cung ứng vật tư & mở rộng kinh doanh</p>
         </div>
         <div class="bg-indigo-800/50 p-2 py-1 rounded border border-indigo-500/50 text-xl font-mono text-yellow-300 font-bold shadow-inner">
-          Số dư: ${{ statsStore.money.toFixed(2) }}
+          Số dư: {{ formatUSD(statsStore.money) }}
         </div>
       </div>
 
@@ -251,7 +251,7 @@ const handleImageError = (id: string) => {
                     <!-- Price row + tooltip -->
                     <div class="flex items-center justify-between">
                       <div class="relative group/price">
-                        <span class="text-indigo-700 font-black text-base">${{ item.buyPrice }}</span>
+                        <span class="text-indigo-700 font-black text-base">{{ formatUSD(item.buyPrice) }}</span>
 
                         <!-- Tooltip chi tiết -->
                         <div class="absolute bottom-full left-0 mb-2 w-52 bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl
@@ -327,7 +327,7 @@ const handleImageError = (id: string) => {
               <div class="mt-auto bg-gray-50 p-3 rounded-lg border border-gray-100 mb-4">
                  <div class="flex justify-between text-sm mb-1">
                    <span class="text-gray-500">Giá mua:</span>
-                   <span class="font-bold text-gray-800">${{ item.buyPrice }}</span>
+                   <span class="font-bold text-gray-800">{{ formatUSD(item.buyPrice) }}</span>
                  </div>
               </div>
 
@@ -339,7 +339,7 @@ const handleImageError = (id: string) => {
                 :icon="{ name: 'heart', position: 'left' }"
                 @click="purchaseFurniture(item.id, item.buyPrice)"
               >
-                Mua Ngay (${{ item.buyPrice }})
+                Mua Ngay ({{ formatUSD(item.buyPrice) }})
               </EnhancedButton>
             </div>
           </div>
@@ -509,7 +509,7 @@ const handleImageError = (id: string) => {
                 <div class="space-y-2 mb-6">
                   <div class="flex justify-between text-xs font-bold">
                     <span class="text-gray-400">Chi phí:</span>
-                    <span class="text-gray-800">${{ exp.cost }}</span>
+                    <span class="text-gray-800">{{ formatUSD(exp.cost) }}</span>
                   </div>
                   <div class="flex justify-between text-xs font-bold">
                     <span class="text-gray-400">Tăng diện tích:</span>
@@ -517,7 +517,7 @@ const handleImageError = (id: string) => {
                   </div>
                   <div class="flex justify-between text-xs font-bold">
                     <span class="text-gray-400">Thuế/Ngày:</span>
-                    <span class="text-red-500">+${{ exp.rentIncrease }}</span>
+                    <span class="text-red-500">+{{ formatUSD(exp.rentIncrease) }}</span>
                   </div>
                 </div>
 

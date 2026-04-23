@@ -156,7 +156,7 @@ function handleContextMenu(e: MouseEvent) {
           <div v-if="!isLoaded" class="card__loading"><div class="spinner"></div></div>
         </div>
         <div class="card__back">
-          <img src="/assets/cards/back.webp" alt="Card Back" loading="lazy" />
+          <img :src="'/assets/cards/back.webp'" alt="Card Back" loading="lazy" />
         </div>
       </div>
     </div>
@@ -181,10 +181,6 @@ function handleContextMenu(e: MouseEvent) {
   user-select: none;
   cursor: pointer;
   transform-style: preserve-3d;
-}
-
-.card.active, .card.active * {
-  transition: none !important;
 }
 
 /* Card Rotator: Xử lý lật mặt cơ bản bằng transition */

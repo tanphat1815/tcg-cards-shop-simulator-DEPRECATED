@@ -15,6 +15,7 @@ import { StateMachine } from '../../shared/StateMachine'
 import type { IState } from '../../shared/StateMachine'
 import { NPCLocomotion } from '../../customer/managers/NPCLocomotion'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
+import { GAME_BALANCE } from '../../../config/gameConfig'
 
 /** Interface cho AI Agent của nhân viên */
 export interface IStaffAgent {
@@ -57,6 +58,9 @@ export class StaffAgent implements IStaffAgent {
   public targetTierIndex?: number | null
   public blacklistedBoxIds: Map<string, number>
   public shadow?: Phaser.GameObjects.Graphics
+  
+  private lastPosition = { x: 0, y: 0 }
+  private lastStuckCheckTime = 0
 
   constructor(scene: Phaser.Scene, sprite: Phaser.Physics.Arcade.Sprite, instanceId: string) {
     this.scene = scene
@@ -74,6 +78,9 @@ export class StaffAgent implements IStaffAgent {
     this.shadow = createDropShadow(this.scene, sprite, { radiusX: 11, radiusY: 5 })
 
     this.setupFSM()
+    
+    this.lastPosition = { x: this.sprite.x, y: this.sprite.y }
+    this.lastStuckCheckTime = this.scene.time.now
   }
 
   private setupFSM() {
@@ -111,6 +118,21 @@ export class StaffAgent implements IStaffAgent {
     this.statusText.setPosition(this.sprite.x, this.sprite.y - 55)
     applyDynamicYSort(this.sprite)
     if (this.shadow) updateDropShadow(this.shadow, this.sprite, { radiusX: 11, radiusY: 5 })
+
+    // ANTI-STUCK LOGIC
+    if (time > this.lastStuckCheckTime + GAME_BALANCE.NPC.STUCK_CHECK_DELAY_MS) {
+       const dist = Phaser.Math.Distance.Between(this.sprite.x, this.sprite.y, this.lastPosition.x, this.lastPosition.y)
+       if (this.locomotion.isMoving && dist < 2) {
+          console.warn(`[StaffManager] Staff ${this.instanceId} stuck detected. Resetting status.`)
+          if (this.duty === 'RESTOCK') {
+            this.fsm.transition('RESTOCKER_IDLE')
+          } else if (this.duty === 'NONE') {
+            this.fsm.transition('RESTING')
+          }
+       }
+       this.lastPosition = { x: this.sprite.x, y: this.sprite.y }
+       this.lastStuckCheckTime = time
+    }
   }
 
   updateStatus(text: string) {

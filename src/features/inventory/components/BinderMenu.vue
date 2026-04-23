@@ -8,7 +8,7 @@ import { useCardDetailStore } from '../store/cardDetailStore'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
 import TcgCard from '../../shared/components/TcgCard.vue'
 import SlabDisplay from '../../shared/components/SlabDisplay.vue'
-import { getRawPrice } from '../../shared/utils/currency'
+import { getRawPrice, formatUSD } from '../../shared/utils/currency'
 
 const gameStore = useGameStore()
 const inventoryStore = useInventoryStore()
@@ -149,7 +149,7 @@ const totalEstimatedValue = computed(() => {
     const base = getRawPrice(item.card)
     total += base * item.slab.priceMultiplier
   })
-  return total.toFixed(2)
+  return total
 })
 
 // Tự động load những card còn thiếu thông tin
@@ -171,7 +171,10 @@ const loadMissingCards = async () => {
 }
 
 watch(() => gameStore.showBinderMenu, (show) => {
-  if (show) loadMissingCards()
+  if (show) {
+    currentPage.value = 0
+    loadMissingCards()
+  }
 })
 
 onMounted(() => {
@@ -247,7 +250,7 @@ onMounted(() => {
         
         <div v-else class="cards-grid">
           <template v-if="activeTab === 'standard'">
-            <div v-for="entry in paginatedStandardCards" :key="entry.id" class="card-slot">
+            <div v-for="entry in paginatedStandardCards" :key="entry.id" v-memo="[entry.qty, entry.id]" class="card-slot">
               <TcgCard 
                 :card="entry.card" 
                 :is-flipped="true" 
@@ -261,7 +264,7 @@ onMounted(() => {
           </template>
           
           <template v-else>
-            <div v-for="entry in paginatedGradedSlabs" :key="entry.slab.slabId" class="slab-slot">
+            <div v-for="entry in paginatedGradedSlabs" :key="entry.slab.slabId" v-memo="[entry.slab.slabId, entry.slab.priceMultiplier]" class="slab-slot">
               <SlabDisplay 
                 :slab="entry.slab" 
                 :card="entry.card"
@@ -289,7 +292,7 @@ onMounted(() => {
         <div class="binder-stats">
           <div class="stat-item">
             <span class="label">Tổng giá trị Binder:</span>
-            <span class="value text-green-400">${{ totalEstimatedValue }}</span>
+            <span class="value text-green-400">{{ formatUSD(totalEstimatedValue) }}</span>
           </div>
         </div>
       </footer>

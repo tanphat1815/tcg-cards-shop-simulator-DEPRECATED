@@ -4,6 +4,7 @@ import { useInventoryStore } from './inventoryStore'
 import { type StockItemInfo, SET_BLACKLIST, MARKUP_PACK, MARKUP_BOX } from '../config'
 import { dbService } from '../../api/services/dbService'
 import { FALLBACK_SETS, FALLBACK_CARDS } from '../../api/config/fallbackData'
+import { GAME_BALANCE } from '../../../config/gameConfig'
 
 const API_CACHE_VERSION = 'v5-pricing'
 
@@ -13,43 +14,14 @@ const sanitizeId = (source: string) => source.replace(/[^a-z0-9_-]/gi, '_').toLo
  * Quy định Level mở khóa dựa trên Series ID chuẩn TCGdex
  */
 const getRequiredLevel = (seriesId: string): number => {
-  const mapping: Record<string, number> = {
-    'base': 1, 'gym': 1, 'neo': 1, 'lc': 1, 'ecard': 1, // Gen 1
-    'ex': 11, // Gen 3
-    'dp': 21, 'pl': 21, 'hgss': 21, 'col': 21, // Gen 4
-    'bw': 31, // Gen 5
-    'xy': 41, // Gen 6
-    'sm': 51, // Gen 7
-    'swsh': 61, // Gen 8
-    'sv': 71, // Gen 9
-    'tcgp': 80, 'me': 80, 'misc': 80, 'pop': 80, 'tk': 80, 'mc': 80 // Special
-  }
-  return mapping[seriesId] || 80
+  return GAME_BALANCE.TCGDEX.SERIES_LEVEL_REQUIRED[seriesId] || 80
 }
 
 /**
  * Ánh xạ Series ID sang Tên Thế hệ hiển thị
  */
 const getGenerationName = (seriesId: string): string => {
-  const names: Record<string, string> = {
-    'base': 'GENERATION I',
-    'gym': 'GENERATION I',
-    'neo': 'GENERATION I',
-    'lc': 'GENERATION I',
-    'ecard': 'GENERATION I',
-    'ex': 'GENERATION III',
-    'dp': 'GENERATION IV',
-    'pl': 'GENERATION IV',
-    'hgss': 'GENERATION IV',
-    'col': 'GENERATION IV',
-    'bw': 'GENERATION V',
-    'xy': 'GENERATION VI',
-    'sm': 'GENERATION VII',
-    'swsh': 'GENERATION VIII',
-    'sv': 'GENERATION IX',
-    'tcgp': 'SPECIAL COLLECTIONS'
-  }
-  return names[seriesId] || 'OTHER SERIES'
+  return GAME_BALANCE.TCGDEX.SERIES_GENERATION_NAMES[seriesId] || 'OTHER SERIES'
 }
 
 /**
@@ -103,7 +75,7 @@ export const useApiStore = defineStore('api', {
     /** Cache theo Set ID */
     setCardsCache: {} as Record<string, any[]>, 
     /** Flat map để lookup nhanh O(1) theo Card ID: cardId -> Card Object */
-    flatCardMap: markRaw({}) as Record<string, any>,
+    flatCardMap: {} as Record<string, any>,
   }),
   getters: {
     sortedShopItems: (state) => Object.values(state.shopItems).sort((a, b) => {
@@ -291,7 +263,6 @@ export const useApiStore = defineStore('api', {
       const rows = await dbService.query('SELECT * FROM cards WHERE id = ?', [cardId]);
       if (rows && rows.length > 0) {
         const card = processCardRow(rows[0]);
-        const setId = card.set_id || 'misc';
         const rawCard = markRaw(card);
         this.flatCardMap[cardId] = rawCard;
         return true

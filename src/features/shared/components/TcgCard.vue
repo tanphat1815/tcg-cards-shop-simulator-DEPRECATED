@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { isHighRarity, getRarityBadge } from '../../inventory/config/rarityRegistry'
 import { formatVND, getRawPrice, getMarketPrice } from '../utils/currency'
+import { FALLBACK_ASSETS } from '../../../config/gameConfig'
 
 const emit = defineEmits(['click'])
 
@@ -17,6 +18,24 @@ const props = defineProps<{
 }>()
 
 const imageLoaded = ref(false)
+const currentImageUrl = ref('')
+
+// Reset image state when card changes
+watch(() => props.card?.image, (newVal) => {
+  if (newVal) {
+    currentImageUrl.value = `${newVal}/low.webp`
+    imageLoaded.value = false
+  } else {
+    currentImageUrl.value = ''
+  }
+}, { immediate: true })
+
+const handleImageError = () => {
+  if (currentImageUrl.value !== FALLBACK_ASSETS.CARD_IMAGE) {
+    currentImageUrl.value = FALLBACK_ASSETS.CARD_IMAGE
+    imageLoaded.value = true // Show the fallback immediately
+  }
+}
 </script>
 
 <template>
@@ -44,7 +63,7 @@ const imageLoaded = ref(false)
       <!-- BACK SIDE -->
       <div class="card-face card-back">
         <slot name="back">
-          <img src="/assets/cards/back.webp" class="card-back-img" alt="Card Back" />
+          <img :src="'/assets/cards/back.webp'" class="card-back-img" alt="Card Back" />
         </slot>
         <div class="flip-hint" v-if="!isFlipped">Click để lật</div>
       </div>
@@ -69,12 +88,13 @@ const imageLoaded = ref(false)
 
           <img
             v-if="card?.image"
-            :src="`${card.image}/low.webp`"
+            :src="currentImageUrl"
             :alt="card.name"
             class="card-image"
             :class="{ 'img-hidden': !imageLoaded }"
             loading="lazy"
             @load="imageLoaded = true"
+            @error="handleImageError"
           />
           <div v-else class="card-no-image">
             <span class="card-no-image-name">{{ card?.name || 'Unknown Card' }}</span>

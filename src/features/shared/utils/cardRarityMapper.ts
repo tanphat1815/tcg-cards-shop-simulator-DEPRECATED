@@ -12,7 +12,6 @@ export const mapRarityToCSS = (rarity: string = '', subtypes: string[] | string 
   const sid = (setId || '').toLowerCase();
 
   // 1. Định nghĩa các nhóm thẻ đặc biệt (theo bản gốc Svelte)
-  const isShiny = num.startsWith('sv');
   const isGallery = !!num.match(/^[tg]g/i);
   const isPromo = sid === 'swshp';
 
@@ -77,7 +76,6 @@ export const getFoilMaskURL = (card: any, rarityClass: string, type: 'foils' | '
   if (!card) return '';
   const server = 'https://poke-holo.b-cdn.net';
   
-  const subtypes = Array.isArray(card.subtypes) ? card.subtypes.map((s: string) => s.toUpperCase()) : [];
   const number = String(card.number || '').toLowerCase();
   const set = String(card.set?.id || card.set_id || card.set || '').toLowerCase();
   

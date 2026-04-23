@@ -13,13 +13,14 @@ import { CustomerAgent } from './CustomerFSM'
 import type { CustomerIntent, CustomerData } from '../types'
 import { aStarGrid, type WorldPoint } from '../../environment/managers/AStarGridManager'
 import { createDropShadow } from '../../environment/ySortUtils'
+import { GAME_BALANCE } from '../../../config/gameConfig'
 
 export class NPCManager {
   private scene: Phaser.Scene
   private environmentManager: EnvironmentManager
   private agents: Map<string, CustomerAgent> = new Map()
   private unsubscribers: (() => void)[] = []
-  private MAX_WAITING_CUSTOMERS = 10
+  private npcGroup: Phaser.Physics.Arcade.Group
   private _queueSlots: WorldPoint[] = []
   private tradeInLeaveHandler: ((ev: Event) => void) | null = null
 
@@ -30,6 +31,7 @@ export class NPCManager {
   constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager) {
     this.scene = scene
     this.environmentManager = environmentManager
+    this.npcGroup = this.scene.physics.add.group()
 
     // Đăng ký sự kiện từ EventBus
     this.unsubscribers.push(
@@ -54,7 +56,7 @@ export class NPCManager {
 
   public initializeNPCs() {
     this.scene.time.addEvent({
-      delay: 3000,
+      delay: GAME_BALANCE.NPC.SPAWN_DELAY_MS,
       callback: () => this.spawnNPC(),
       loop: true
     })
@@ -63,11 +65,10 @@ export class NPCManager {
   public spawnNPC() {
     const gameStore = useGameStore()
     if (gameStore.shopState !== 'OPEN' || gameStore.timeInMinutes >= 1200) return
-    if (this.agents.size >= 15) return
+    if (this.agents.size >= GAME_BALANCE.NPC.MAX_COUNT) return
     
     // Ràng buộc 🆕: Nếu hàng chờ quá dài thì không cho khách mới vào để tránh kẹt
-    if (gameStore.waitingCustomers >= this.MAX_WAITING_CUSTOMERS) {
-      // console.log('[NPCManager] Queue full, skipping spawn.')
+    if (gameStore.waitingCustomers >= GAME_BALANCE.NPC.MAX_WAITING_CUSTOMERS) {
       return
     }
 
@@ -78,12 +79,17 @@ export class NPCManager {
     const pool = AppConfig.ASSETS.NPC_POOLS
     const selectedTexture = pool[Math.floor(Math.random() * pool.length)].key
 
-    const npcSprite = this.scene.physics.add.sprite(
-      doorLocation.x,
-      doorLocation.y + 50,
-      selectedTexture,
-      0
-    )
+    // --- OBJECT POOLING LOGIC ---
+    let npcSprite = this.npcGroup.get(doorLocation.x, doorLocation.y + 50, selectedTexture) as Phaser.Physics.Arcade.Sprite
+    
+    if (!npcSprite) {
+      // Fallback if group.get fails to create (shouldn't happen with default group settings)
+      npcSprite = this.scene.physics.add.sprite(doorLocation.x, doorLocation.y + 50, selectedTexture)
+    }
+
+    npcSprite.setActive(true).setVisible(true)
+    npcSprite.setFrame(0)
+    if (npcSprite.body) npcSprite.body.enable = true
     npcSprite.setOrigin(0.5, 1)
     applyFootCollider(npcSprite, 0.3)
     npcSprite.refreshBody()
@@ -93,15 +99,13 @@ export class NPCManager {
     const rand = Math.random()
     let intent: CustomerIntent = 'BUY'
     
-    // Giảm tỷ lệ NPC vào shop để thu mua thẻ lẻ (SELL intent) xuống mức thấp hơn (~5%)
-    // Và chỉ cho phép spawn nếu chưa có ai đang đợi thu mua
-    if (rand < 0.25) {
+    if (rand < GAME_BALANCE.NPC.INTENT_CHANCES.PLAY) {
       intent = 'PLAY'
-    } else if (rand < 0.30 && !activeSeller) {
+    } else if (rand < GAME_BALANCE.NPC.INTENT_CHANCES.PLAY + GAME_BALANCE.NPC.INTENT_CHANCES.SELL && !activeSeller) {
       intent = 'SELL'
     }
     
-    if (intent === 'SELL' && useStatsStore().level < 5) intent = 'BUY'
+    if (intent === 'SELL' && useStatsStore().level < GAME_BALANCE.NPC.MIN_LEVEL_FOR_SELL) intent = 'BUY'
 
     let tradeCardId: string | undefined
     if (intent === 'SELL') {
@@ -158,7 +162,7 @@ export class NPCManager {
     let currentX = this._queueSlots.length > 0 ? startX : cashierPos.x
     let currentY = this._queueSlots.length > 0 ? startY : cashierPos.y + 48
 
-    for (let i = this._queueSlots.length; i < this.MAX_WAITING_CUSTOMERS; i++) {
+    for (let i = this._queueSlots.length; i < GAME_BALANCE.NPC.MAX_WAITING_CUSTOMERS; i++) {
        const candidates = [
          { x: currentX, y: currentY + SLOT_SPACING }, // DOWN
          { x: currentX + SLOT_SPACING, y: currentY }, // RIGHT
