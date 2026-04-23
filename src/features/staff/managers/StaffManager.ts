@@ -3,7 +3,7 @@
 
 import Phaser from 'phaser'
 import { DEPTH } from '../../environment/config'
-import { applyDynamicYSort, applyFootCollider } from '../../environment/ySortUtils'
+import { applyDynamicYSort, applyFootCollider, createDropShadow, updateDropShadow } from '../../environment/ySortUtils'
 import { useStaffStore } from '../store/staffStore'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import { useFurnitureStore } from '../../furniture/store/furnitureStore'
@@ -35,6 +35,8 @@ export interface IStaffAgent {
   // Anti-loop: Tránh cầm lại những thùng mà vừa rồi không tìm được kệ trống
   blacklistedBoxIds: Map<string, number> 
   
+  shadow?: Phaser.GameObjects.Graphics;
+  
   sync(duty: WorkerDuty, deskId?: string | null): void
   update(time: number, delta: number): void
   updateStatus(text: string): void
@@ -50,11 +52,11 @@ export class StaffAgent implements IStaffAgent {
   public statusText: Phaser.GameObjects.Text
   public duty: WorkerDuty = 'NONE'
   public targetDeskId?: string | null
-
   public carriedBoxId?: string | null
   public targetShelfId?: string | null
   public targetTierIndex?: number | null
   public blacklistedBoxIds: Map<string, number>
+  public shadow?: Phaser.GameObjects.Graphics
 
   constructor(scene: Phaser.Scene, sprite: Phaser.Physics.Arcade.Sprite, instanceId: string) {
     this.scene = scene
@@ -68,6 +70,8 @@ export class StaffAgent implements IStaffAgent {
       fontSize: '10px',
       color: '#00ffff'
     }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
+
+    this.shadow = createDropShadow(this.scene, sprite, { radiusX: 11, radiusY: 5 })
 
     this.setupFSM()
   }
@@ -106,6 +110,7 @@ export class StaffAgent implements IStaffAgent {
     this.locomotion.update()
     this.statusText.setPosition(this.sprite.x, this.sprite.y - 55)
     applyDynamicYSort(this.sprite)
+    if (this.shadow) updateDropShadow(this.shadow, this.sprite, { radiusX: 11, radiusY: 5 })
   }
 
   updateStatus(text: string) {
@@ -117,12 +122,15 @@ export class StaffAgent implements IStaffAgent {
       const dm = (this.scene as any).deliveryManager
       dm.staffDropBox(this.carriedBoxId, this.sprite.x, this.sprite.y)
       this.carriedBoxId = null
+      this.targetShelfId = null
+      this.targetTierIndex = null
     }
   }
 
   destroy() {
     this.sprite.destroy()
     this.statusText.destroy()
+    this.shadow?.destroy()
   }
 }
 
@@ -215,6 +223,8 @@ class RestockerIdleState implements IState<IStaffAgent> {
         const target = reachableBoxes[0]
         if (dm.staffPickUpBox(target.id)) {
           agent.carriedBoxId = target.id
+          agent.targetShelfId = null
+          agent.targetTierIndex = null
           agent.fsm.transition('RESTOCKER_MOVE_TO_BOX')
         }
       } else if (hasShelves) {
@@ -253,6 +263,8 @@ class RestockerIdleState implements IState<IStaffAgent> {
             )
             
             agent.carriedBoxId = boxId
+            agent.targetShelfId = null
+            agent.targetTierIndex = null
             agent.fsm.transition('RESTOCKER_MOVE_TO_BOX')
             return
           }

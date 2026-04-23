@@ -84,6 +84,8 @@ export class NPCLocomotion {
       onUpdate: () => {
         // Y-Sort mỗi frame khi đang di chuyển
         applyDynamicYSort(this.sprite)
+        // Note: Shadow update is handled by the higher level Agent update() 
+        // because it has access to the Graphics object.
       },
       onComplete: () => {
         if (this.path.length > 0) {
@@ -102,7 +104,7 @@ export class NPCLocomotion {
   private updateAnimation(target: WorldPoint) {
     const dx = target.x - this.sprite.x
     const dy = target.y - this.sprite.y
-    const prefix = this.sprite.texture.key.includes('staff') ? 'staff' : 'npc'
+    const prefix = this.sprite.texture.key
 
     if (Math.abs(dx) > Math.abs(dy)) {
       this.sprite.anims.play(dx < 0 ? `${prefix}-left` : `${prefix}-right`, true)

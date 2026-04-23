@@ -51,6 +51,8 @@ export interface CustomerData {
   targetShelfId?: string;
   /** Index của tầng kệ đang chọn */
   targetTierIndex?: number;
+  /** Bóng đổ 2.5D dưới chân */
+  shadow?: Phaser.GameObjects.Graphics;
 }
 
 

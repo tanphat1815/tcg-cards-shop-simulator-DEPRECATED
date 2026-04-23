@@ -12,6 +12,7 @@ import { eventBus } from '../../shared/EventBus'
 import { CustomerAgent } from './CustomerFSM'
 import type { CustomerIntent, CustomerData } from '../types'
 import { aStarGrid, type WorldPoint } from '../../environment/managers/AStarGridManager'
+import { createDropShadow } from '../../environment/ySortUtils'
 
 export class NPCManager {
   private scene: Phaser.Scene
@@ -128,7 +129,8 @@ export class NPCManager {
       lastDecisionTime: this.scene.time.now,
       instanceId,
       checkedShelfIds: [],
-      tradeCardId
+      tradeCardId,
+      shadow: createDropShadow(this.scene, npcSprite, { radiusX: 11, radiusY: 5 })
     }
 
     const agent = new CustomerAgent(this.scene, data)

@@ -19,11 +19,9 @@ import SetPriceModal from './features/inventory/components/SetPriceModal.vue'
 import HoldingHandHUD from './features/inventory/components/HoldingHandHUD.vue'
 import TradeInModal from './features/inventory/components/TradeInModal.vue'
 import { useGameStore } from './features/shop-ui/store/gameStore'
-import GradingServiceApp from './features/grading/components/GradingServiceApp.vue'
 import GradingReveal from './features/grading/components/GradingReveal.vue'
 import { useGradingStore } from './features/grading/store/gradingStore'
 import { useEventStore } from './features/events/store/eventStore'
-import { useUIStore } from './features/shop-ui/store/uiStore'
 import Smartphone from './features/shop-ui/components/Smartphone.vue'
 import CheckoutModal from './features/inventory/components/CheckoutModal.vue'
 import PocketModal from './features/inventory/components/PocketModal.vue'
@@ -50,7 +48,6 @@ const playerHandStore = usePlayerHandStore()
 const tradeInStore = useTradeInStore()
 const gradingStore = useGradingStore()
 const eventStore = useEventStore()
-const uiStore = useUIStore()
 const pocketStore = usePlayerPocketStore()
 
 

@@ -246,7 +246,8 @@ const handleTierRightClick = (tierIndex: number) => {
   const tier = shelf.tiers[tierIndex]
   if (!tier.itemId || tier.slots.length === 0) return
 
-  const itemData = inventoryStore.shopItems[tier.itemId]
+  const capturedId = tier.itemId // Lưu lại ID trước khi rút món cuối
+  const itemData = inventoryStore.shopItems[capturedId]
   if (!itemData) return
 
   // Lấy 1 đơn vị từ kệ → đưa vào Pocket
@@ -254,7 +255,7 @@ const handleTierRightClick = (tierIndex: number) => {
   if (!taken) return
 
   pocketStore.addToPocket({
-    itemId: tier.itemId,
+    itemId: capturedId,
     name: itemData.name,
     type: itemData.type as 'pack' | 'box',
     quantity: 1,
@@ -263,9 +264,9 @@ const handleTierRightClick = (tierIndex: number) => {
 
   // Auto-select item vừa lấy
   activeSelection.value = {
-    itemId: tier.itemId,
+    itemId: capturedId,
     source: 'pocket',
-    quantity: pocketStore.pocket[tier.itemId]?.quantity ?? 1,
+    quantity: pocketStore.pocket[capturedId]?.quantity ?? 1,
   }
 }
 

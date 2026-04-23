@@ -57,29 +57,15 @@ export class DeliveryManager {
       collideWorldBounds: true
     })
 
-    // 2. Khởi tạo Delivery Zone (Vật thể tĩnh)
+    // 2. Khởi tạo Delivery Zone Group
     this.deliveryZoneGroup = this.scene.physics.add.staticGroup()
     
-    // Lấy zone từ EnvironmentManager (đã được tính trong refreshEnvironment)
-    const dz = this.environmentManager.deliveryZone
-    
-    // Tạo mặt sàn bãi nhận hàng (Màu xám đường nhựa)
-    const zoneRect = this.scene.add.rectangle(dz.x, dz.y, dz.width, 50, 0x333333)
-    zoneRect.setDepth(DEPTH.FURNITURE - 1)
-    this.deliveryZoneGroup.add(zoneRect)
-    
-    // Vẽ Text tiêu đề trên mặt sàn
-    this.scene.add.text(dz.x, dz.y - 20, "BÃI NHẬN HÀNG", {
-      fontSize: '13px',
-      fontStyle: 'bold',
-      color: '#aaaaaa'
-    }).setOrigin(0.5).setDepth(DEPTH.FURNITURE)
+    // Ban đầu có thể chưa có zone, chúng ta sẽ vẽ lại trong refreshDeliveryZone
+    this.refreshDeliveryZone()
 
     // 3. Thiết lập va chạm
-    // (Bỏ va chạm giữa các thùng với nhau để tránh tình trạng rung/văng khi chồng lấp quá nhiều)
-    // this.scene.physics.add.collider(this.boxGroup, this.boxGroup)
+    // KHÔNG chặn thùng hàng bằng collider của bãi nhận hàng nữa để thùng có thể rơi vào "lòng" hình vuông
     this.scene.physics.add.collider(this.boxGroup, this.environmentManager.wallsGroup)
-    this.scene.physics.add.collider(this.boxGroup, this.deliveryZoneGroup)
 
     // UI Hint Text
     this.hintText = this.scene.add.text(0, 0, '', {
@@ -90,7 +76,7 @@ export class DeliveryManager {
       fontStyle: 'bold',
     }).setDepth(999).setScrollFactor(0).setVisible(false)
 
-    // 4. Lắng nghe event Grading Package
+    // 4. Event listeners
     this.gradingArrivedHandler = ((ev: CustomEvent) => {
       const { packageId } = ev.detail
       this.spawnGradingPackage(packageId)
@@ -105,6 +91,31 @@ export class DeliveryManager {
     window.addEventListener('grading:package-consumed', this.gradingConsumedHandler)
   }
 
+  /**
+   * Vẽ lại khu vực nhận hàng dựa trên tọa độ mới nhất
+   */
+  public refreshDeliveryZone() {
+    this.deliveryZoneGroup.clear(true, true)
+    const dz = this.environmentManager.deliveryZone
+    if (!dz) return
+
+    // Vẽ nền bãi nhận hàng (để sâu hẳn xuống dưới)
+    const zoneRect = this.scene.add.rectangle(dz.x, dz.y, dz.width, dz.height, 0x333333, 0.6)
+    zoneRect.setDepth(DEPTH.LAYER1_FLOOR + 0.2) // Trên sàn vỉa hè một chút
+    zoneRect.setStrokeStyle(2, 0x555555)
+    this.deliveryZoneGroup.add(zoneRect)
+
+    // Vẽ nhãn tiêu đề
+    const label = this.scene.add.text(dz.x, dz.y, "BÃI NHẬN HÀNG", {
+      fontSize: '14px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+      backgroundColor: 'rgba(0,0,0,0.3)',
+      padding: { x: 5, y: 2 }
+    }).setOrigin(0.5).setDepth(DEPTH.LAYER1_FLOOR + 0.3)
+    this.deliveryZoneGroup.add(label)
+  }
+
   update(time: number, playerX: number, playerY: number) {
     this.trySpawnNext(time)
     this.updateCarryPosition(playerX, playerY)
@@ -113,20 +124,44 @@ export class DeliveryManager {
     this.checkCarriedBoxConsumed()
     this.syncToStore()
     
-    // R2: Y-SORT for all live boxes every frame
-    for (const box of this.boxes) {
+    // Sử dụng vòng lặp ngược (reverse) để an toàn khi xóa phần tử trong mảng
+    for (let i = this.boxes.length - 1; i >= 0; i--) {
+      const box = this.boxes[i]
+      if (!box || !box.sprite || !box.sprite.active) continue
+
+      // Logic rơi tự do cho đến khi chạm "đất" (Target Y)
+      const isBeingCarried = box.isBeingCarried || box.carriedBy !== null
+      if (!isBeingCarried) {
+        const targetY = box.sprite.getData('targetY')
+        if (targetY !== undefined) {
+          if (box.sprite.y < targetY) {
+            // Đang rơi
+            const body = box.sprite.body as Phaser.Physics.Arcade.Body
+            if (body && body.velocity.y === 0) body.setVelocityY(300)
+            box.sprite.setData('isLanded', false)
+          } else {
+            // Đã chạm đất
+            box.sprite.y = targetY
+            const body = box.sprite.body as Phaser.Physics.Arcade.Body
+            if (body) {
+                body.setVelocityY(0)
+                body.setAccelerationY(0)
+                body.setGravityY(0)
+            }
+            box.sprite.setData('isLanded', true)
+          }
+        }
+      }
+
+      // Xử lý Depth & Labels
       if (box.isBeingCarried) {
-        // Carried box must render above the carrier entity.
-        // Since carrier depth = LAYER3_OBJECTS + carrier.y, add +1 to guarantee
-        // the box draws on top of the carrier sprite.
         box.sprite.setDepth(DEPTH.LAYER3_OBJECTS + box.sprite.y + 1)
       } else {
         applyDynamicYSort(box.sprite)
       }
 
-      // Keep labels positioned above the sprite
-      if (box.label)    box.label.setPosition(box.sprite.x, box.sprite.y - 40)
-      if (box.qtyLabel) box.qtyLabel.setPosition(box.sprite.x, box.sprite.y - 25)
+      if (box.label && box.label.active)    box.label.setPosition(box.sprite.x, box.sprite.y - 40)
+      if (box.qtyLabel && box.qtyLabel.active) box.qtyLabel.setPosition(box.sprite.x, box.sprite.y - 25)
     }
   }
 
@@ -157,36 +192,37 @@ export class DeliveryManager {
   private spawnBox(item: { itemId: string; name: string; type: string; quantity: number }, x?: number, y?: number) {
     const dz = this.environmentManager.deliveryZone
     
-    // Default coordinates if not provided
-    const halfWidth = dz.width / 2
-    const spawnX = x ?? (dz.x + Phaser.Math.Between(-halfWidth * 0.7, halfWidth * 0.7))
-    const spawnY = y ?? (dz.y - 200) // Rơi từ trên cao xuống
+    // Randomize target position within the zone bounds
+    const padding = 10
+    const targetX = x ?? (dz.x + Phaser.Math.Between(-dz.width/2 + padding, dz.width/2 - padding))
+    const targetY = y ?? (dz.y + Phaser.Math.Between(-dz.height/2 + padding, dz.height/2 - padding))
+    
+    // Spawn high above to fall down
+    const spawnY = targetY - 300
 
     // ==================== SPAWN BOX (2.5D) ====================
     const boxTexture = item.type === 'furniture' ? AppConfig.ASSETS.BOXES.FURNITURE : AppConfig.ASSETS.BOXES.ITEM
-    const boxSprite = this.scene.physics.add.sprite(spawnX, spawnY, boxTexture)
-    boxSprite.setOrigin(0.5, 1)               // R1: foot anchor
-    applyFootCollider(boxSprite, 1.0)         // Box is cuboid — full-height collider
+    const boxSprite = this.scene.physics.add.sprite(targetX, spawnY, boxTexture)
+    boxSprite.setOrigin(0.5, 1)               
+    applyFootCollider(boxSprite, 1.0)         
     boxSprite.setCollideWorldBounds(true)
     boxSprite.setBounce(0.3)
-    // R2: Initial Y-sort depth (updated every frame in update() via applyDynamicYSort)
-    applyDynamicYSort(boxSprite)
+    boxSprite.setData('targetY', targetY) // Đánh dấu tọa độ tiếp đất mong muốn
     
-    // Thêm vào physics group
+    applyDynamicYSort(boxSprite)
     this.boxGroup.add(boxSprite)
     
     const body = boxSprite.body as Phaser.Physics.Arcade.Body
-    body.setGravityY(500) // Tăng trọng lực để rớt thật hơn
-    body.setVelocityY(50) // Rớt xuống
+    body.setVelocityY(300) 
 
-    const label = this.scene.add.text(spawnX, spawnY - 40, item.name.substring(0, 20), {
+    const label = this.scene.add.text(targetX, spawnY - 40, item.name.substring(0, 20), {
       fontSize: '9px',
       color: '#ffffff',
       backgroundColor: 'rgba(0,0,0,0.7)',
       padding: { x: 3, y: 2 }
     }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
 
-    const qtyLabel = this.scene.add.text(spawnX, spawnY - 25, `×${item.quantity}`, {
+    const qtyLabel = this.scene.add.text(targetX, spawnY - 25, `×${item.quantity}`, {
       fontSize: '11px',
       color: '#fbbf24',
       fontStyle: 'bold',
@@ -422,7 +458,7 @@ export class DeliveryManager {
    * Lấy danh sách các thùng hàng đang nằm trên đất (không bị ai cầm).
    */
   public getUncarriedBoxes() {
-    return this.boxes.filter(b => b.carriedBy === null)
+    return this.boxes.filter(b => b.carriedBy === null && b.sprite.getData('isLanded') === true)
   }
 
   public getBoxById(boxId: string) {

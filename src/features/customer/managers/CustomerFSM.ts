@@ -13,6 +13,7 @@ import { getRawPrice } from '../../shared/utils/currency'
 import { DEPTH } from '../../environment/config'
 import { eventBus } from '../../shared/EventBus'
 import type { CustomerData } from '../types'
+import { updateDropShadow } from '../../environment/ySortUtils'
 
 /** Interface mở rộng cho Customer Agency */
 export interface ICustomerAgent {
@@ -91,6 +92,11 @@ export class CustomerAgent implements ICustomerAgent {
     if (this.data.tradeIcon) {
        this.data.tradeIcon.setPosition(this.sprite.x, this.sprite.y - 70)
     }
+
+    // Shadow update
+    if (this.data.shadow) {
+       updateDropShadow(this.data.shadow, this.sprite, { radiusX: 11, radiusY: 5 })
+    }
   }
 
   leaveShop() {
@@ -105,6 +111,7 @@ export class CustomerAgent implements ICustomerAgent {
     this.statusText.destroy()
     if (this.data.tradeIcon) this.data.tradeIcon.destroy()
     this.sprite.destroy()
+    if (this.data.shadow) this.data.shadow.destroy()
   }
 }
 

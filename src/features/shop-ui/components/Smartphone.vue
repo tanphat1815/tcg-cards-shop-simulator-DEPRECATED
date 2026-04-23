@@ -4,7 +4,6 @@ import { useUIStore } from '../store/uiStore'
 import { useGameStore } from '../store/gameStore'
 import ManageEventApp from '../../events/components/ManageEventApp.vue'
 import GradingServiceApp from '../../grading/components/GradingServiceApp.vue'
-import EnhancedButton from '../../shared/components/EnhancedButton.vue'
 
 const uiStore = useUIStore()
 const gameStore = useGameStore()
