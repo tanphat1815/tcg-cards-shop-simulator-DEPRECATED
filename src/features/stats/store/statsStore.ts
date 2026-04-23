@@ -92,12 +92,16 @@ export const useStatsStore = defineStore('stats', {
 
     /** 
      * Cập nhật thời gian. 
-     * Thời gian shop kết thúc cố định ở 1200 phút (20:00).
+     * Thời gian shop bị giới hạn từ 480 phút (8:00) đến 1200 phút (20:00).
      */
     tickTime(minutes: number) {
       this.timeInMinutes += minutes
-      if (this.timeInMinutes >= 1200) {
+      
+      // Giới hạn thời gian trong khoảng 8:00 AM - 8:00 PM
+      if (this.timeInMinutes > 1200) {
         this.timeInMinutes = 1200
+      } else if (this.timeInMinutes < 480) {
+        this.timeInMinutes = 480
       }
     },
 

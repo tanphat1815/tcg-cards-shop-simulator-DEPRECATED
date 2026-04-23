@@ -8,6 +8,8 @@ import { useApiStore } from './apiStore'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 
 import { usePlayerPocketStore } from './playerPocketStore'
+import { dbService } from '../../api/services/dbService'
+import { processCardRow } from './apiStore'
 
 /**
  * InventoryStore - Quản lý dòng chảy hàng hóa và bộ sưu tập thẻ bài.
@@ -229,6 +231,57 @@ export const useInventoryStore = defineStore('inventory', {
       })
       // Xoá sạch kho ảo sau khi migrate
       this.shopInventory = {}
+    },
+
+    /**
+     * [DEV MODE ONLY] Lấy card ngẫu nhiên theo tiêu chí và thêm trực tiếp vào Binder.
+     */
+    async getRandomCardsByCriteria(criteria: { type?: string, rarity?: string, subtype?: string }, count: number = 10) {
+      const apiStore = useApiStore()
+      let query = 'SELECT * FROM cards'
+      const conditions: string[] = []
+      const params: any[] = []
+
+      if (criteria.type) {
+        conditions.push('types LIKE ?')
+        params.push(`%${criteria.type}%`)
+      }
+      if (criteria.rarity) {
+        conditions.push('rarity = ?')
+        params.push(criteria.rarity)
+      }
+      if (criteria.subtype) {
+        conditions.push('(name LIKE ? OR rarity LIKE ?)')
+        params.push(`%${criteria.subtype}%`)
+        params.push(`%${criteria.subtype}%`)
+      }
+
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ')
+      }
+
+      query += ' ORDER BY RANDOM() LIMIT ?'
+      params.push(count)
+
+      try {
+        const rows = await dbService.query(query, params)
+        const cards = (rows || []).map(processCardRow)
+
+        cards.forEach(card => {
+          if (!this.personalBinder[card.id]) {
+            this.personalBinder[card.id] = 0
+          }
+          this.personalBinder[card.id]++
+          
+          // Cache to flat map for UI lookup
+          apiStore.flatCardMap[card.id] = markRaw(card)
+        })
+
+        return cards
+      } catch (e) {
+        console.error('[InventoryStore] DevMode card injection failed:', e)
+        return []
+      }
     }
   }
 })

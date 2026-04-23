@@ -55,7 +55,7 @@ const getGenerationName = (seriesId: string): string => {
 /**
  * Helper to safely parse JSON fields from SQLite
  */
-const processCardRow = (row: any) => {
+export const processCardRow = (row: any) => {
   if (!row) return row
   const card = { ...row }
   
@@ -67,7 +67,7 @@ const processCardRow = (row: any) => {
   card.retreatCost = parseInt(String(card.retreatCost ?? 0), 10) || 0
 
   // Parse các trường JSON thô từ SQLite
-  const jsonFields = ['types', 'attacks', 'abilities', 'weaknesses', 'resistances', 'pricing']
+  const jsonFields = ['types', 'subtypes', 'attacks', 'abilities', 'weaknesses', 'resistances', 'pricing']
   jsonFields.forEach(field => {
     if (typeof card[field] === 'string' && card[field].trim() !== '') {
       try {
@@ -286,22 +286,49 @@ export const useApiStore = defineStore('api', {
     },
 
     async ensureCardInCache(cardId: string) {
-      for (const setCards of Object.values(this.setCardsCache)) {
-        if (setCards.find((c: any) => c.id === cardId)) return true
-      }
+      if (this.flatCardMap[cardId]) return true
 
       const rows = await dbService.query('SELECT * FROM cards WHERE id = ?', [cardId]);
       if (rows && rows.length > 0) {
         const card = processCardRow(rows[0]);
         const setId = card.set_id || 'misc';
-        if (!this.setCardsCache[setId]) this.setCardsCache[setId] = markRaw([]);
         const rawCard = markRaw(card);
-        this.setCardsCache[setId].push(rawCard);
         this.flatCardMap[cardId] = rawCard;
-        this.saveToStorage();
         return true
       }
       return false
+    },
+
+    /**
+     * Đảm bảo một danh sách các thẻ có mặt trong cache (Tối ưu hóa Batch Load)
+     */
+    async ensureCardsInCache(cardIds: string[]) {
+      const missingIds = cardIds.filter(id => !this.flatCardMap[id]);
+      if (missingIds.length === 0) return;
+
+      console.log(`[ApiStore] Hydrating ${missingIds.length} missing cards...`, missingIds);
+
+      // Chia nhỏ batch nếu quá lớn (SQLite limit variables hoặc performance)
+      const batchSize = 50;
+      for (let i = 0; i < missingIds.length; i += batchSize) {
+        const chunk = missingIds.slice(i, i + batchSize);
+        const placeholders = chunk.map(() => '?').join(',');
+        
+        try {
+          const rows = await dbService.query(`SELECT * FROM cards WHERE id IN (${placeholders})`, chunk);
+          console.log(`[ApiStore] Batch result: found ${rows?.length || 0} cards in database.`);
+          
+          if (rows) {
+            rows.forEach((row: any) => {
+              const card = processCardRow(row);
+              this.flatCardMap[card.id] = markRaw(card);
+            });
+          }
+        } catch (e) {
+          console.error('[ApiStore] Batch hydration error:', e);
+        }
+      }
+      this.saveToStorage();
     },
 
     async loadSetCards(setId: string): Promise<any[]> {
@@ -339,5 +366,6 @@ export const useApiStore = defineStore('api', {
       this.saveToStorage()
       return cards
     },
+
   }
 })

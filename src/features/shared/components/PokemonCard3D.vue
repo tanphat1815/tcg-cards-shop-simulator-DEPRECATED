@@ -5,7 +5,7 @@
  * - Sử dụng CSS variables để điều khiển hiệu ứng.
  */
 import { ref, computed } from 'vue';
-import { mapRarityToCSS } from '../utils/cardRarityMapper';
+import { mapRarityToCSS, getFoilMaskURL } from '../utils/cardRarityMapper';
 
 interface Props {
   card: any;
@@ -32,7 +32,36 @@ const cardElement = ref<HTMLElement | null>(null);
 const isLoaded = ref(false);
 const isInteracting = ref(false);
 
-const rarityClass = computed(() => mapRarityToCSS(props.card?.rarity, props.isReverse));
+const rarityClass = computed(() => mapRarityToCSS(
+  props.card?.rarity, 
+  props.card?.subtypes, 
+  props.card?.name,
+  props.card?.number,
+  props.card?.set?.id || props.card?.set_id || props.card?.set
+));
+
+const holoStyles = computed(() => {
+  if (props.isBack) return {};
+  
+  const maskUrl = getFoilMaskURL(props.card, rarityClass.value, 'masks');
+  const foilUrl = getFoilMaskURL(props.card, rarityClass.value, 'foils');
+  
+  return {
+    '--mask': `url(${maskUrl})`,
+    '--foil': `url(${foilUrl})`,
+    '--seedx': Math.random(),
+    '--seedy': Math.random(),
+    '--cosmosbg': `${Math.floor(Math.random() * 1000)}px ${Math.floor(Math.random() * 1000)}px`,
+    '--debug-url': maskUrl
+  };
+});
+
+const typeClass = computed(() => {
+  if (!props.card?.types) return '';
+  return Array.isArray(props.card.types) 
+    ? props.card.types.map((t: string) => t.toLowerCase()).join(' ') 
+    : props.card.types.toLowerCase();
+});
 const imageSrc = computed(() => props.card?.image ? `${props.card.image}/high.webp` : '');
 
 const handleMouseMove = (e: MouseEvent) => {
@@ -89,19 +118,27 @@ function handleContextMenu(e: MouseEvent) {
 <template>
   <div
     ref="cardElement"
-    class="card"
+    class="card interactive masked"
     :class="[
       rarityClass,
+      typeClass,
       { 'is-back': isBack },
       { 'is-hit': isHit },
       { 'no-tilt': disableTilt },
-      { 'active': isInteracting }
+      { 'active': isInteracting },
+      { 'interacting': isInteracting },
+      { 'masked': true }
     ]"
+    :data-rarity="props.isReverse ? rarityClass + ' reverse holo' : rarityClass"
+    :data-subtypes="Array.isArray(props.card?.subtypes) ? props.card.subtypes.join(' ').toLowerCase() : (props.card?.subtypes || '').toLowerCase()"
+    :data-supertype="(props.card?.supertype || '').toLowerCase()"
+    :data-number="String(props.card?.number || '').toLowerCase()"
+    :data-set="String(props.card?.set?.id || props.card?.set_id || props.card?.set || '').toLowerCase().replace(/(tg|gg|sv)/g, '')"
+    :data-debug-holo="holoStyles['--mask']"
     :style="{ 
       width: typeof props.width === 'number' ? props.width + 'px' : props.width,
-      '--card-opacity': isBack || disableTilt ? 0 : 1
+      '--card-opacity': props.isBack || props.disableTilt ? 0 : 1
     }"
-    :data-rarity="rarityClass"
     @mousemove="handleMouseMove"
     @mouseleave="handleMouseLeave"
     @click="handleClick"
@@ -109,13 +146,13 @@ function handleContextMenu(e: MouseEvent) {
   >
     <div class="card__translater">
       <div class="card__rotator">
-        <div class="card__front">
+        <div class="card__front" :style="holoStyles">
           <img :src="imageSrc" @load="onImgLoad" alt="Card Front" loading="lazy" />
           <!-- Shine & Glare: BẮT BUỘC có trong DOM để thư viện hoạt động -->
           <div class="card__shine"></div>
           <div class="card__glare"></div>
           
-          <div v-if="isHit" class="card__hit-overlay"></div>
+          <div v-if="props.isHit" class="card__hit-overlay"></div>
           <div v-if="!isLoaded" class="card__loading"><div class="spinner"></div></div>
         </div>
         <div class="card__back">
@@ -135,6 +172,8 @@ function handleContextMenu(e: MouseEvent) {
   --pointer-y: 50%;
   --pointer-from-center: 0;
   --card-opacity: 1;
+  --translate-x: 0px;
+  --translate-y: 0px;
 
   max-width: 100%;
   aspect-ratio: 0.714;
@@ -142,6 +181,10 @@ function handleContextMenu(e: MouseEvent) {
   user-select: none;
   cursor: pointer;
   transform-style: preserve-3d;
+}
+
+.card.active, .card.active * {
+  transition: none !important;
 }
 
 /* Card Rotator: Xử lý lật mặt cơ bản bằng transition */
@@ -182,14 +225,7 @@ function handleContextMenu(e: MouseEvent) {
   transition: none;
 }
 
-.card__shine, .card__glare {
-  -webkit-mask-image: none !important;
-  mask-image: none !important;
-  clip-path: none !important;
-}
-.card {
-  --mask: none !important;
-}
+/* Remove explicit mask none to allow library masks */
 
 /* Hit overlay */
 .card__hit-overlay {

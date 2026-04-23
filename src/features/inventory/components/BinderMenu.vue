@@ -153,14 +153,21 @@ const totalEstimatedValue = computed(() => {
 })
 
 // Tự động load những card còn thiếu thông tin
-const loadMissingCards = () => {
+const loadMissingCards = async () => {
   if (!gameStore.showBinderMenu) return
-  filteredStandardCards.value.forEach(item => {
-    if (!item.card) apiStore.ensureCardInCache(item.id)
-  })
-  filteredGradedSlabs.value.forEach(item => {
-    if (!item.card) apiStore.ensureCardInCache(item.slab.cardId)
-  })
+  console.log('[BinderMenu] Opening binder, checking for missing cards...');
+  
+  // Lấy toàn bộ ID từ Binder (Standard + Graded)
+  const standardIds = Object.keys(inventoryStore.personalBinder)
+  const gradedIds = gradingStore.gradedBinder.map(slab => slab.cardId)
+  
+  // Gộp lại và loại bỏ trùng lặp
+  const allNeededIds = [...new Set([...standardIds, ...gradedIds])]
+  
+  // Tải theo lô (Batch Hydration)
+  if (allNeededIds.length > 0) {
+    await apiStore.ensureCardsInCache(allNeededIds)
+  }
 }
 
 watch(() => gameStore.showBinderMenu, (show) => {
