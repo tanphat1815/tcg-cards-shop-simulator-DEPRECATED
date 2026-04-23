@@ -9,6 +9,7 @@ import type { GradedCard, GradingPackage } from '../../inventory/types'
 
 /** Thẻ đang được gửi đi chấm (trạng thái chờ) */
 export interface PendingGradingItem {
+  uid: string
   cardId: string
   sentOnDay: number
   returnOnDay: number
@@ -69,6 +70,7 @@ export const useGradingStore = defineStore('grading', {
 
       const currentDay = statsStore.currentDay
       this.pendingGrading.push({
+        uid: `grad_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         cardId,
         sentOnDay: currentDay,
         returnOnDay: currentDay + GRADING_DURATION_DAYS,
@@ -86,42 +88,40 @@ export const useGradingStore = defineStore('grading', {
      *   2. Tạo GradedCard (slab) với slabId unique
      *   3. Gom các slab về cùng 1 GradingPackage (bưu kiện)
      */
-    checkGradingStatus() {
+    /**
+     * Nhận một thẻ bài cụ thể: Chuyển nó từ pendingGrading sang bưu kiện vật lý.
+     */
+    claimGradingItem(uid: string) {
       const statsStore = useStatsStore()
+      const idx = this.pendingGrading.findIndex(item => item.uid === uid)
+      if (idx === -1) return
+
+      const item = this.pendingGrading[idx]
       const currentDay = statsStore.currentDay
 
-      // Split: thẻ đã về vs chưa về
-      const returned: PendingGradingItem[] = []
-      const stillPending: PendingGradingItem[] = []
+      // Xóa khỏi danh sách chờ
+      this.pendingGrading.splice(idx, 1)
 
-      for (const item of this.pendingGrading) {
-        if (item.returnOnDay <= currentDay) {
-          returned.push(item)
-        } else {
-          stillPending.push(item)
-        }
-      }
+      // Tạo slab (kết quả chấm điểm)
+      const slab = this._rollSlab(item, currentDay)
 
-      this.pendingGrading = stillPending
-
-      if (returned.length === 0) return
-
-      // Tạo slab cho từng thẻ đã về
-      const newSlabs: GradedCard[] = returned.map(item => this._rollSlab(item, currentDay))
-
-      // Đóng gói tất cả vào 1 bưu kiện
       const pkg: GradingPackage = {
-        packageId: `pkg_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-        slabs: newSlabs,
-        // Tọa độ spawn — Phaser sẽ pick từ EnvironmentManager
+        packageId: `grad_pkg_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+        slabs: [slab],
         x: 0, y: 0,
       }
       this.pendingPackages.push(pkg)
 
-      // Phát event cho Phaser biết spawn bưu kiện
+      // Phát event cho Phaser spawn thùng hàng
       window.dispatchEvent(new CustomEvent('grading:package-arrived', {
         detail: { packageId: pkg.packageId }
       }))
+
+      console.log(`[GradingStore] Item ${item.cardId} claimed and sent to delivery zone.`)
+    },
+
+    checkGradingStatus() {
+      // Logic cũ bị xóa bỏ để nhường cho việc Nhận 1-1 qua claimGradingItem
     },
 
     /**

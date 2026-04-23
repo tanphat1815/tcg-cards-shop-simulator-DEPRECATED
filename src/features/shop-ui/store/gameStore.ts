@@ -378,8 +378,8 @@ export const useGameStore = defineStore('game', {
         table.matchStartedAt = null
       })
 
-      // 4. Kiểm tra thẻ đã chấm xong
-      useGradingStore().checkGradingStatus()
+      // 4. Kiểm tra thẻ đã chấm xong (Đã chuyển sang nhận bài thủ công trong Tablet)
+      // useGradingStore().checkGradingStatus()
 
       // 5. Áp dụng event mới
       useEventStore().applyNextEventOnNewDay()

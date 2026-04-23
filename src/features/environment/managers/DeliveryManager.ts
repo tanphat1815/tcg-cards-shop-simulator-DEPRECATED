@@ -285,6 +285,22 @@ export class DeliveryManager {
       }
     }
 
+    // ── Có bưu kiện Grading gần ──
+    let hasGradingNearby = false
+    this.packageSprites.forEach((sprite) => {
+      const dist = Phaser.Math.Distance.Between(playerX, playerY, sprite.x, sprite.y)
+      if (dist < 80) hasGradingNearby = true
+    })
+
+    if (hasGradingNearby) {
+      this.hintText
+        .setText('[F] Mở bưu phẩm Grading')
+        .setVisible(true)
+        .setPosition(cam.width / 2, cam.height - 80)
+        .setOrigin(0.5)
+      return
+    }
+
     if (hasNearby) {
       this.hintText
         .setText('[F] Nhặt thùng hàng')
@@ -320,8 +336,24 @@ export class DeliveryManager {
       useGameStore().openPocketModal()
     }
 
-    // ── PHÍM F: Nhặt / Thả thùng ──
+    // ── PHÍM F: Nhặt / Thả thùng / Mở Grading ──
     if (!Phaser.Input.Keyboard.JustDown(this.keyF)) return
+
+    // Ưu tiên mở bưu kiện Grading trước nếu ở gần
+    let nearestPkgId: string | null = null
+    let minPkgDist = 80
+    this.packageSprites.forEach((sprite, pkgId) => {
+      const dist = Phaser.Math.Distance.Between(playerX, playerY, sprite.x, sprite.y)
+      if (dist < minPkgDist) {
+        minPkgDist = dist
+        nearestPkgId = pkgId
+      }
+    })
+
+    if (nearestPkgId) {
+      useGradingStore().openPackage(nearestPkgId)
+      return
+    }
 
     if (deliveryStore.carriedBox) {
       this.dropCarried()
@@ -622,19 +654,32 @@ export class DeliveryManager {
   // === GRADING PACKAGES ===
 
   private spawnGradingPackage(packageId: string) {
-    console.log('[DeliveryManager] Spawning grading package:', packageId)
-    // Spawn gần cửa shop
-    const door = this.environmentManager.getDoorLocation()
-    const x = door.x + 60 + Math.random() * 40
-    const y = door.y + 30
+    console.log('[DeliveryManager] Spawning physical grading package:', packageId)
+    
+    // Spawn trong bãi nhận hàng
+    const dz = this.environmentManager.deliveryZone
+    if (!dz) return
 
-    const sprite = this.scene.add.sprite(x, y, TEX.PACKAGE_BOX)
+    const padding = 15
+    const targetX = dz.x + Phaser.Math.Between(-dz.width/2 + padding, dz.width/2 - padding)
+    const targetY = dz.y + Phaser.Math.Between(-dz.height/2 + padding, dz.height/2 - padding)
+    
+    // Rơi từ trên cao
+    const spawnY = targetY - 400
+
+    const sprite = this.scene.physics.add.sprite(targetX, spawnY, TEX.PACKAGE_BOX)
       .setOrigin(0.5, 1)
-      .setInteractive({ useHandCursor: true })
-      .setDepth(DEPTH.LAYER3_OBJECTS + y)
+      .setDepth(DEPTH.LAYER3_OBJECTS + targetY)
+      .setTint(0x60a5fa) // Màu xanh nhạt để phân biệt với thùng hàng thường
 
-    // Icon ❓ trên đầu để Player biết click được
-    const label = this.scene.add.text(x, y - 50, '❓', { 
+    sprite.setCollideWorldBounds(true)
+    sprite.setBounce(0.4)
+    
+    const body = sprite.body as Phaser.Physics.Arcade.Body
+    body.setVelocityY(400)
+    
+    // Icon ❓ 
+    const label = this.scene.add.text(targetX, spawnY - 50, '❓', { 
         fontSize: '20px',
         backgroundColor: 'rgba(0,0,0,0.5)',
         padding: { x: 4, y: 2 }
@@ -642,16 +687,30 @@ export class DeliveryManager {
       .setOrigin(0.5)
       .setDepth(DEPTH.UI_TEXT)
 
-    // Click handler
-    sprite.on('pointerdown', () => {
-      useGradingStore().openPackage(packageId)
-    })
+    // Cập nhật vị trí label khi đang rơi (hoặc nhảy)
+    const updateHandler = () => {
+      if (!sprite.active) {
+        this.scene.events.off('update', updateHandler)
+        return
+      }
+      
+      // Logic chạm đất (giống spawnBox nhưng đơn giản hơn)
+      if (sprite.y >= targetY) {
+        sprite.y = targetY
+        body.setVelocityY(0)
+        body.setGravityY(0)
+        body.setImmovable(true)
+      }
+      
+      label.setPosition(sprite.x, sprite.y - 50)
+    }
+    this.scene.events.on('update', updateHandler)
 
-    // Idle bounce animation
+    // Bouncing animation
     this.scene.tweens.add({
-      targets: [sprite, label],
-      y: '-=6',
-      duration: 800, 
+      targets: [label],
+      y: '-=10',
+      duration: 1000, 
       yoyo: true, 
       repeat: -1,
       ease: 'Sine.easeInOut'
@@ -659,6 +718,7 @@ export class DeliveryManager {
 
     this.packageSprites.set(packageId, sprite)
     sprite.setData('label', label)
+    sprite.setData('updateHandler', updateHandler)
   }
 
   private removeGradingPackage(packageId: string) {

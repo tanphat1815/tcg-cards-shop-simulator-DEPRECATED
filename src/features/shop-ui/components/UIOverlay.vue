@@ -8,6 +8,7 @@ import EnhancedButton from '../../shared/components/EnhancedButton.vue'
 import CartButton from '../../inventory/components/CartButton.vue'
 import ControlHintOverlay from './ControlHintOverlay.vue'
 import { usePlayerPocketStore } from '../../inventory/store/playerPocketStore'
+import { useGradingStore } from '../../grading/store/gradingStore'
 
 /**
  * Facade store for managing game state
@@ -16,6 +17,7 @@ const gameStore = useGameStore()
 const battleStore = useBattleStore()
 const uiStore = useUIStore()
 const pocketStore = usePlayerPocketStore()
+const gradingStore = useGradingStore()
 
 
 // Clock logic - Removed from Vue to keep single source of truth in Phaser MainScene
@@ -141,6 +143,15 @@ const isShopManagerMinimized = ref(false)
             >
               Thanh toán
             </EnhancedButton>
+          </div>
+
+          <!-- Grading Packages -->
+          <div v-if="gradingStore.pendingPackages.length > 0" class="mt-4 bg-emerald-900/40 border border-emerald-500/50 text-emerald-200 px-4 py-3 rounded-xl flex items-center gap-3 pointer-events-auto">
+             <span class="text-xl">🎁</span>
+             <div class="flex flex-col">
+                <span class="text-[10px] font-black uppercase opacity-70">Bưu kiện mới</span>
+                <span class="text-xs font-bold leading-tight">Có {{ gradingStore.pendingPackages.length }} bưu kiện Grading chờ phía ngoài Shop!</span>
+             </div>
           </div>
 
           <div class="mt-5 pt-5 border-t border-gray-700/50 flex flex-wrap gap-3">

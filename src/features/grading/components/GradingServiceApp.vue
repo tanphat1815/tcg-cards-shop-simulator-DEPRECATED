@@ -81,7 +81,18 @@ function submitAll() {
       <div class="main-content">
         <!-- Danh sách pending -->
         <section class="pending-section">
-          <h3>Thẻ đang chấm ({{ gradingStore.pendingGrading.length }})</h3>
+          <div class="section-header">
+            <h3>Thẻ đang chấm ({{ gradingStore.pendingGrading.length }})</h3>
+            <div v-if="gradingStore.pendingPackages.length > 0" class="package-notification group">
+              <span class="mr-2">🎁 {{ gradingStore.pendingPackages.length }} bưu kiện đã về!</span>
+              <button 
+                @click="gradingStore.openPackage(gradingStore.pendingPackages[0].packageId)"
+                class="bg-white/20 hover:bg-white/40 px-2 py-0.5 rounded text-[10px] font-black uppercase transition-colors"
+              >
+                Mở Tại Đây
+              </button>
+            </div>
+          </div>
           <div class="pending-scroll custom-scrollbar">
             <ul v-if="gradingStore.pendingGrading.length > 0">
               <li v-for="p in gradingStore.pendingGrading" :key="p.cardId + p.sentOnDay">
@@ -90,15 +101,23 @@ function submitAll() {
                     <span class="card-name">{{ apiStore.flatCardMap[p.cardId]?.name ?? p.cardId }}</span>
                   </div>
                   <div class="return-info">
-                    <span v-if="p.returnOnDay <= statsStore.currentDay" class="days-left text-green-400 font-bold">✨ Sẵn sàng nhận!</span>
-                    <span v-else-if="p.returnOnDay === statsStore.currentDay + 1" class="days-left text-blue-400">🚚 Về vào ngày mai</span>
-                    <span v-else class="days-left">Giao trả Ngày {{ p.returnOnDay }} (còn {{ p.returnOnDay - statsStore.currentDay }} ngày)</span>
+                    <button 
+                      v-if="p.returnOnDay <= statsStore.currentDay" 
+                      class="manual-claim-btn animate-pulse"
+                      @click="gradingStore.claimGradingItem(p.uid)"
+                      title="Bấm để nhận bưu kiện này vào bãi nhận hàng"
+                    >
+                      🚚 Sẵn sàng - Nhận ngay
+                    </button>
+                    <span v-else-if="p.returnOnDay === statsStore.currentDay + 1" class="days-left text-blue-400">🕒 Về vào ngày mai</span>
+                    <span v-else class="days-left text-gray-500">Giao trả Ngày {{ p.returnOnDay }} (còn {{ p.returnOnDay - statsStore.currentDay }} ngày)</span>
                   </div>
                 </div>
               </li>
             </ul>
             <div v-else class="empty-state">
-              <p>Chưa có thẻ nào đang được gửi.</p>
+              <p v-if="gradingStore.pendingPackages.length > 0">Thẻ đã được giao! Hãy kiểm tra bưu kiện tại cửa hàng.</p>
+              <p v-else>Chưa có thẻ nào đang được gửi.</p>
             </div>
           </div>
         </section>
@@ -253,6 +272,30 @@ header h2 {
   text-transform: uppercase;
   color: #888;
   letter-spacing: 0.5px;
+}
+
+.manual-claim-btn {
+  background: #059669;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #047857;
+  transition: all 0.1s;
+}
+
+.manual-claim-btn:hover {
+  background: #10b981;
+  transform: translateY(-1px);
+}
+
+.manual-claim-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #047857;
 }
 
 .pending-scroll {
@@ -420,4 +463,27 @@ footer {
 ::-webkit-scrollbar-thumb:hover {
   background: #444;
 }
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 2px solid #333;
+}
+
+.package-notification {
+  background: #059669;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 900;
+  padding: 2px 10px;
+  border-radius: 99px;
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
 </style>
