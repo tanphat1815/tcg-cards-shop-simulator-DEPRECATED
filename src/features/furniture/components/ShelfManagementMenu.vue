@@ -9,6 +9,7 @@ import { usePlayerPocketStore } from '../../inventory/store/playerPocketStore'
 import { getPackVisuals, getBoxVisuals } from '../../inventory/config/assetRegistry'
 import TcgCard from '../../shared/components/TcgCard.vue'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
+import ProductImage from '../../../shared/components/ProductImage.vue'
 
 const gameStore = useGameStore()
 const inventoryStore = useInventoryStore()
@@ -33,19 +34,6 @@ const pocketItems = computed(() =>
   })
 )
 
-// Helper: lấy URL ảnh cho item
-function getItemImageUrl(itemId: string, type: 'pack' | 'box', sourceSetId?: string): string {
-  try {
-    // Luôn ưu tiên dùng sourceSetId nếu có để lấy đúng ảnh gốc
-    const setId = sourceSetId || itemId;
-    return type === 'pack'
-      ? getPackVisuals(setId).front
-      : getBoxVisuals(setId).front
-  } catch (e) {
-    console.warn('[ShelfMenu] Image fail:', itemId)
-    return ''
-  }
-}
 
 function getItemType(itemId: string | null): 'pack' | 'box' | null {
   if (!itemId) return null
@@ -370,11 +358,7 @@ const tierFillPct = (tierIndex: number): number => {
               >
                 <!-- Ảnh nhỏ -->
                 <div class="w-10 h-14 flex-shrink-0 rounded overflow-hidden bg-slate-900 border border-slate-700">
-                  <img
-                    :src="getItemImageUrl(entry.itemId, entry.type, entry.sourceSetId)"
-                    class="w-full h-full object-contain"
-                    @error="(e) => (e.target as HTMLImageElement).style.display = 'none'"
-                  />
+                  <ProductImage :item-id="entry.itemId" :type="entry.type" :source-set-id="entry.sourceSetId" />
                 </div>
                 <div class="flex flex-col min-w-0 flex-grow">
                   <span class="font-bold text-[12px] text-gray-100 truncate">{{ entry.name }}</span>
@@ -579,16 +563,8 @@ const tierFillPct = (tierIndex: number): number => {
                       : 'bg-gray-900/40 border-gray-800 border-dashed'"
                     style="height: 60px;"
                   >
-                    <div v-if="n <= tier.slots.length" class="w-full h-full relative z-10">
-                        <img 
-                          :src="getItemImageUrl(tier.itemId, 'pack')" 
-                          class="w-full h-full object-contain"
-                          @error="(e: any) => e.target.style.opacity = '0'"
-                        />
-                        <!-- Fallback nếu ảnh lỗi -->
-                        <div class="absolute inset-0 flex items-center justify-center text-[10px] text-indigo-400 font-bold text-center p-1 bg-indigo-900/20 pointer-events-none opacity-0 group-hover/item:opacity-100 transition-opacity">
-                          {{ inventoryStore.shopItems[tier.itemId]?.name.split(' ')[0] }}
-                        </div>
+                    <div v-if="n <= tier.slots.length" class="w-full h-full p-1">
+                        <ProductImage :item-id="tier.itemId" type="pack" />
                     </div>
                     <div v-else class="text-gray-800 text-lg font-black opacity-20">+</div>
                 </div>
@@ -607,16 +583,8 @@ const tierFillPct = (tierIndex: number): number => {
                       : 'bg-gray-900/40 border-gray-700/20 border-dashed'"
                     style="height: 120px;"
                   >
-                    <div v-if="n <= tier.slots.length" class="w-full h-full relative z-10">
-                        <img 
-                          :src="getItemImageUrl(tier.itemId, 'box')" 
-                          class="w-full h-full object-contain"
-                          @error="(e: any) => e.target.style.opacity = '0'"
-                        />
-                        <!-- Fallback nếu ảnh lỗi -->
-                        <div class="absolute inset-0 flex items-center justify-center text-xs text-amber-500 font-black text-center p-2 bg-amber-900/20 pointer-events-none opacity-0 group-hover/box:opacity-100 transition-opacity">
-                          {{ inventoryStore.shopItems[tier.itemId]?.name }}
-                        </div>
+                    <div v-if="n <= tier.slots.length" class="w-full h-full p-2">
+                        <ProductImage :item-id="tier.itemId" type="box" />
                     </div>
                     <span v-else class="text-gray-800 text-2xl font-black opacity-20">?</span>
                 </div>

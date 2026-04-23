@@ -7,6 +7,7 @@ import { EnvironmentManager } from '../../environment/managers/EnvironmentManage
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import { applyFootCollider } from '../../environment/ySortUtils'
 import { useStatsStore } from '../../stats/store/statsStore'
+import { useFurnitureStore } from '../../furniture/store/furnitureStore'
 import { useApiStore } from '../../inventory/store/apiStore'
 import { eventBus } from '../../shared/EventBus'
 import { CustomerAgent } from './CustomerFSM'
@@ -64,7 +65,8 @@ export class NPCManager {
 
   public spawnNPC() {
     const gameStore = useGameStore()
-    if (gameStore.shopState !== 'OPEN' || gameStore.timeInMinutes >= 1200) return
+    const furnitureStore = useFurnitureStore()
+    if (gameStore.shopState !== 'OPEN' || gameStore.timeInMinutes >= 1200 || furnitureStore.isEditMode) return
     if (this.agents.size >= GAME_BALANCE.NPC.MAX_COUNT) return
     
     // Ràng buộc 🆕: Nếu hàng chờ quá dài thì không cho khách mới vào để tránh kẹt

@@ -43,11 +43,25 @@ export const useStatsStore = defineStore('stats', {
     /** Cấu hình hiển thị và trải nghiệm người dùng */
     settings: {
       /** Cho phép hiển thị vùng thông báo mở rộng diện tích */
-      showExpansionPreview: true,
+      showExpansionPreview: false,
       /** Phong cách hiển thị vùng mở rộng (BLUEPRINT: Bản vẽ xanh, GLOW: Hiệu ứng tỏa sáng) */
       expansionPreviewStyle: 'GLOW' as 'BLUEPRINT' | 'GLOW',
       /** Hiển thị khung va chạm vật lý (Debug) cho các thực thể */
-      showDebugPhysics: false
+      showDebugPhysics: false,
+      /** Cấu hình phím điều khiển (Rebindable keys) */
+      controls: {
+        MOVE_UP: 'W',
+        MOVE_LEFT: 'A',
+        MOVE_DOWN: 'S',
+        MOVE_RIGHT: 'D',
+        INTERACT: 'E',
+        BUILD_MENU: 'X',
+        POCKET_MENU: 'B',
+        ONLINE_SHOP: 'TAB',
+        PICKUP_ITEM: 'F',
+        DROP_ITEM: 'F',
+        ROTATE_FURNITURE: 'R'
+      }
     },
   }),
   getters: {

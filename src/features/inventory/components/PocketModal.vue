@@ -1,17 +1,10 @@
 <script setup lang="ts">
-import { usePlayerPocketStore } from '../store/playerPocketStore'
 import { useInventoryStore } from '../store/inventoryStore'
-import { getPackVisuals, getBoxVisuals } from '../config/assetRegistry'
+import { usePlayerPocketStore } from '../store/playerPocketStore'
+import ProductImage from '../../../shared/components/ProductImage.vue'
 
 const pocketStore = usePlayerPocketStore()
 const inventoryStore = useInventoryStore()
-
-function getImageUrl(entry: any): string {
-  const setId = entry.sourceSetId ?? entry.itemId.replace('pack_', '').replace('box_', '')
-  return entry.type === 'pack'
-    ? getPackVisuals(setId).front
-    : getBoxVisuals(setId).front
-}
 
 async function openPack(itemId: string) {
   const taken = pocketStore.removeFromPocket(itemId, 1)
@@ -88,11 +81,7 @@ function unboxItem(itemId: string) {
             >
               <!-- Ảnh -->
               <div class="w-14 h-20 flex-shrink-0 bg-slate-900 rounded-lg overflow-hidden border border-slate-700/50">
-                <img
-                  :src="getImageUrl(entry)"
-                  class="w-full h-full object-contain"
-                  @error="(e) => (e.target as HTMLImageElement).src = ''"
-                />
+                <ProductImage :item-id="entry.itemId" :type="entry.type" :source-set-id="entry.sourceSetId" />
               </div>
 
               <!-- Info -->

@@ -11,11 +11,12 @@ export const useUIStore = defineStore('ui', {
     showBinderMenu: false,
     showBuildMenu: false,
     showOnlineShop: false,
+    activeShopTab: 'STOCK' as 'STOCK' | 'FURNITURE' | 'STAFF' | 'RENO' | 'CART',
     showManageEvent: false,
 
     // Smartphone State
     showSmartphone: false,
-    activeApp: 'home' as 'home' | 'events' | 'grading',
+    activeApp: 'home' as 'home' | 'events' | 'grading' | 'settings',
     
     // Tham chiếu đến vật phẩm UI đang tương tác
     activeShelfId: null as string | null,
@@ -31,12 +32,15 @@ export const useUIStore = defineStore('ui', {
       }
     },
 
-    setActiveApp(app: 'home' | 'events' | 'grading') {
+    setActiveApp(app: 'home' | 'events' | 'grading' | 'settings') {
       this.activeApp = app
     },
 
-    toggleOnlineShop(show?: boolean) {
+    toggleOnlineShop(show?: boolean, tab: 'STOCK' | 'FURNITURE' | 'STAFF' | 'RENO' | 'CART' = 'STOCK') {
       this.showOnlineShop = show ?? !this.showOnlineShop
+      if (this.showOnlineShop) {
+        this.activeShopTab = tab
+      }
     },
     
     toggleBinderMenu(show?: boolean) {

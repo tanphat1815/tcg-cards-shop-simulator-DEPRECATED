@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { useCartStore } from '../store/cartStore'
+import { useUIStore } from '../../shop-ui/store/uiStore'
+
 const cartStore = useCartStore()
+const uiStore = useUIStore()
 </script>
 
 <template>
   <button
-    @click="cartStore.toggleCart()"
+    @click="uiStore.toggleOnlineShop(true, 'CART')"
     class="relative bg-indigo-600 hover:bg-indigo-700 text-white rounded-full
            w-12 h-12 flex items-center justify-center shadow-lg transition-colors pointer-events-auto"
     title="Xem giỏ hàng"

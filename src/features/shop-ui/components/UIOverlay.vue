@@ -43,24 +43,8 @@ watch(() => gameStore.level, (newVal, oldVal) => {
   }
 })
 
-/**
- * Transform the shopInventory Record into an array for rendering
- */
-const inventoryDetails = computed(() => {
-  return Object.keys(gameStore.shopInventory).map(itemId => {
-    const itemData = gameStore.shopItems[itemId]
-    return {
-      id: itemId,
-      name: itemData?.name || 'Unknown Item',
-      quantity: gameStore.shopInventory[itemId],
-      type: itemData?.type || 'pack'
-    }
-  }).sort((a, b) => b.quantity - a.quantity)
-})
-
 // Minimization state
 const isShopManagerMinimized = ref(false)
-const isInventoryMinimized = ref(false)
 </script>
 
 <template>
@@ -170,23 +154,25 @@ const isInventoryMinimized = ref(false)
               SHOP
             </EnhancedButton>
             <EnhancedButton
-              variant="success"
+              variant="primary"
               size="md"
-              :icon="{ name: 'edit', position: 'left' }"
-              @click="gameStore.setShowBuildMenu(true)"
-              title="Mở menu trang trí"
+              :icon="{ name: 'star', position: 'left' }"
+              @click="uiStore.toggleSmartphone(true)"
+              title="Mở Digital Services - Quản lý sự kiện & Chấm điểm thẻ"
             >
-              BUILD
+              📊 ADMIN TABLET
             </EnhancedButton>
+
             <EnhancedButton
-              variant="secondary"
+              variant="info"
               size="md"
-              :icon="{ name: 'settings', position: 'left' }"
-              @click="gameStore.setShowSettings(true)"
-              title="Mở menu cài đặt"
+              :icon="{ name: 'star', position: 'left' }"
+              @click="gameStore.setShowBinderMenu(true)"
+              title="Mở Binder - Xem bộ sưu tập thẻ"
             >
-              CONFIG
+              📚 BINDER
             </EnhancedButton>
+
             <EnhancedButton
               variant="danger"
               size="md"
@@ -195,22 +181,14 @@ const isInventoryMinimized = ref(false)
             >
               ⚔️ BATTLE
             </EnhancedButton>
-            <EnhancedButton
-              variant="primary"
-              size="md"
-              :icon="{ name: 'star', position: 'left' }"
-              @click="uiStore.toggleSmartphone(true)"
-              title="Mở Smartphone - Quản lý sự kiện & Chấm điểm thẻ"
-            >
-              📱 SMARTPHONE
-            </EnhancedButton>
+
             <CartButton />
 
             <!-- Túi Ba Lô Button -->
             <button
               @click="pocketStore.openPocketModal()"
               class="relative bg-yellow-600 hover:bg-yellow-500 text-white rounded-full w-12 h-12 flex items-center justify-center shadow-lg transition-all hover:scale-110 pointer-events-auto"
-              title="Túi Ba Lô (hàng đã bóc thùng)"
+              title="Túi Ba Lô (phiếu bài đã bóc)"
             >
               🎒
               <span
@@ -220,15 +198,12 @@ const isInventoryMinimized = ref(false)
                 {{ Object.keys(pocketStore.pocket).length }}
               </span>
             </button>
-
           </div>
         </div>
+
         <div v-else key="minimized" class="pointer-events-auto flex items-center gap-2">
             <div class="bg-gray-900/90 backdrop-blur text-white px-4 py-2.5 rounded-xl shadow-xl border border-gray-700 flex items-center gap-3">
                <span class="text-green-400 font-black tabular-nums font-mono text-sm">${{ gameStore.money.toLocaleString() }}</span>
-               <div v-if="gameStore.waitingCustomers > 0" class="flex gap-1 items-center bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded-md text-[10px] font-black border border-orange-500/30">
-                  <span class="animate-pulse">●</span> {{ gameStore.waitingCustomers }} WAITING
-               </div>
             </div>
             <EnhancedButton 
               variant="secondary" 
@@ -240,83 +215,6 @@ const isInventoryMinimized = ref(false)
               title="Phóng to Shop Manager"
             />
         </div>
-      </Transition>
-    </div>
-
-    <!-- Bottom-right: Inventory -->
-    <div class="absolute bottom-6 right-6 flex flex-col items-end gap-3 max-w-sm w-full pointer-events-auto">
-      <Transition name="panel-slide" mode="out-in">
-        <div 
-          v-if="!isInventoryMinimized" 
-          key="panel" 
-          class="w-full bg-gray-900/80 backdrop-blur text-white p-5 rounded-xl shadow-2xl border border-gray-700/50 relative flex flex-col max-h-[400px] pointer-events-auto"
-        >
-          <EnhancedButton 
-            variant="danger" 
-            size="xs" 
-            circle
-            :icon="{ name: 'close' }" 
-            @click="isInventoryMinimized = true"
-            class="absolute -top-3 -right-3 shadow-red-500/40 z-30"
-            title="Đóng kho"
-          />
-
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 flex items-center gap-2">
-              📦 Kho Hàng <span class="text-xs bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-md">{{ inventoryDetails.length }} items</span>
-            </h3>
-            <EnhancedButton
-              variant="outline"
-              size="sm"
-              :icon="{ name: 'star', position: 'left' }"
-              @click="gameStore.setShowBinderMenu(true)"
-            >
-              Binder Menu
-            </EnhancedButton>
-          </div>
-          
-          <div class="overflow-y-auto space-y-2.5 pr-2 custom-scrollbar">
-            <div v-if="inventoryDetails.length === 0" class="text-center py-10">
-              <span class="text-4xl block mb-2 grayscale opacity-50">📫</span>
-              <p class="text-gray-600 font-bold italic text-sm">Kho đồ đang trống...</p>
-            </div>
-            <div v-for="item in inventoryDetails" :key="item.id" class="flex items-center justify-between p-3.5 bg-gray-800/40 hover:bg-gray-800/60 rounded-2xl border border-gray-700/30 transition-all group">
-              <div class="flex flex-col gap-0.5">
-                <span class="text-xs font-black text-gray-200 group-hover:text-white line-clamp-1">{{ item.name }}</span>
-                <span class="text-[9px] text-gray-500 font-black uppercase tracking-tighter">{{ item.type }}</span>
-              </div>
-              <div class="flex items-center gap-3">
-                <span class="text-xs font-black text-indigo-400 tabular-nums bg-indigo-500/10 px-2 py-1 rounded-lg border border-indigo-500/20">x{{ item.quantity }}</span>
-                <EnhancedButton 
-                  v-if="item.type === 'box'" 
-                  variant="danger" 
-                  size="xs" 
-                  @click="gameStore.unboxItem(item.id)"
-                >
-                  Xé Hộp
-                </EnhancedButton>
-                <EnhancedButton 
-                  v-if="item.type === 'pack'" 
-                  variant="info" 
-                  size="xs" 
-                  @click="gameStore.tearPack(item.id)"
-                >
-                  Mở Pack
-                </EnhancedButton>
-              </div>
-            </div>
-          </div>
-        </div>
-        <EnhancedButton 
-          v-else 
-          variant="secondary"
-          size="md"
-          @click="isInventoryMinimized = false"
-          class="bg-gray-900/90 backdrop-blur text-white px-6 py-4 rounded-2xl shadow-2xl border border-gray-700 font-black uppercase tracking-[0.2em] text-[10px] flex items-center gap-4 animate-in fade-in slide-in-from-right-2 hover:scale-105 transition-transform group pointer-events-auto"
-        >
-          <span class="text-xl group-hover:rotate-12 transition-transform">📦</span> Inventory
-          <span v-if="inventoryDetails.length > 0" class="bg-indigo-600 text-white px-2 py-0.5 rounded-lg text-[9px]">{{ inventoryDetails.length }}</span>
-        </EnhancedButton>
       </Transition>
     </div>
 

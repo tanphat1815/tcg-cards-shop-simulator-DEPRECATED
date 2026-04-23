@@ -265,6 +265,10 @@ export const useGameStore = defineStore('game', {
           useEventStore().loadEventState(parsed)
           usePlayerPocketStore().loadPocket(parsed)
 
+          if (parsed.keybindings) {
+            useStatsStore().settings.controls = { ...useStatsStore().settings.controls, ...parsed.keybindings }
+          }
+
           
           console.log('[GameStore] Game loaded successfully')
         } catch (e) {
@@ -296,7 +300,7 @@ export const useGameStore = defineStore('game', {
       safe.placedShelves = data.placedShelves || {}
       safe.placedTables = data.placedTables || {}
       safe.placedCashiers = data.placedCashiers || {}
-      safe.purchasedFurniture = data.purchasedFurniture || []
+      safe.purchasedFurniture = (data.purchasedFurniture && !Array.isArray(data.purchasedFurniture)) ? data.purchasedFurniture : {}
       safe.gymLeaders = data.gymLeaders || []
       safe.deliveryBoxes = data.deliveryBoxes || []
       
@@ -344,6 +348,8 @@ export const useGameStore = defineStore('game', {
         nextEventId: useEventStore().nextEventId,
         totalPlayersHosted: useEventStore().totalPlayersHosted,
         playerPocket: usePlayerPocketStore().pocket,
+        hiredWorkers: useStaffStore().hiredWorkers,
+        keybindings: useStatsStore().settings.controls
       }
 
       localStorage.setItem('tcg-shop-save', JSON.stringify(saveData))

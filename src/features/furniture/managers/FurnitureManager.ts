@@ -169,7 +169,8 @@ export class FurnitureManager {
 
   private getTableInfo(table: PlayTableData): string {
     const occupiedSeats = table.occupants.filter(o => o !== null).length
-    const status = table.matchStartedAt ? 'Đang chơi...' : `${occupiedSeats}/2 Người chơi`
+    // Chỉ hiện "Đang chơi" nếu có ít nhất 1 người (thường là 2)
+    const status = (table.matchStartedAt && occupiedSeats > 0) ? 'Đang chơi...' : `${occupiedSeats}/2 Người chơi`
     return status
   }
 

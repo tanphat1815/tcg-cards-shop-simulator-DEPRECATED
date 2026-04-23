@@ -10,11 +10,9 @@ import ShelfManagementMenu from './features/furniture/components/ShelfManagement
 import OnlineShopMenu from './features/inventory/components/OnlineShopMenu.vue'
 import DevModeMenu from './features/shop-ui/components/DevModeMenu.vue'
 import BuildMenu from './features/furniture/components/BuildMenu.vue'
-import SettingsModal from './features/shop-ui/components/SettingsModal.vue'
 import CardDetailOverlay from './features/shop-ui/components/CardDetailOverlay.vue'
 import BattleArena from './features/battle/components/BattleArena.vue'
 import GymOverlay from './features/gym/components/GymOverlay.vue'
-import CartSidebar from './features/inventory/components/CartSidebar.vue'
 import SetPriceModal from './features/inventory/components/SetPriceModal.vue'
 import HoldingHandHUD from './features/inventory/components/HoldingHandHUD.vue'
 import TradeInModal from './features/inventory/components/TradeInModal.vue'
@@ -22,7 +20,7 @@ import { useGameStore } from './features/shop-ui/store/gameStore'
 import GradingReveal from './features/grading/components/GradingReveal.vue'
 import { useGradingStore } from './features/grading/store/gradingStore'
 import { useEventStore } from './features/events/store/eventStore'
-import Smartphone from './features/shop-ui/components/Smartphone.vue'
+import AdminTablet from './features/shop-ui/components/AdminTablet.vue'
 import CheckoutModal from './features/inventory/components/CheckoutModal.vue'
 import PocketModal from './features/inventory/components/PocketModal.vue'
 
@@ -105,11 +103,10 @@ onMounted(() => {
     <!-- Battle Arena sử dụng Teleport nên sẽ tự render vào body -->
     <BattleArena />
     <GymOverlay />
-    <CartSidebar />
     <SetPriceModal />
     <HoldingHandHUD />
     <TradeInModal />
-    <Smartphone />
+    <AdminTablet />
     <GradingReveal />
     <CheckoutModal />
     <PocketModal />

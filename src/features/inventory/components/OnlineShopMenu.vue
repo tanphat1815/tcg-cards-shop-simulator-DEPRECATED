@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch, reactive } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useUIStore } from '../../shop-ui/store/uiStore'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import { useStatsStore } from '../../stats/store/statsStore'
 import { useInventoryStore } from '../store/inventoryStore'
@@ -9,27 +10,77 @@ import { FURNITURE_ITEMS } from '../../furniture/config'
 import { WORKERS } from '../../staff/config'
 import { EXPANSIONS_LOT_A } from '../../environment/config'
 import EnhancedButton from '../../shared/components/EnhancedButton.vue'
-import { getPackVisuals, getBoxVisuals, hasCustomVisual } from '../config/assetRegistry'
 import { useCartStore } from '../store/cartStore'
 import AddToCartModal from './AddToCartModal.vue'
+import ProductImage from '../../../shared/components/ProductImage.vue'
 
 import { formatVND, formatUSD } from '../../shared/utils/currency'
 
 const gameStore = useGameStore()
 const statsStore = useStatsStore()
 const inventoryStore = useInventoryStore()
+const cartStore = useCartStore()
 const staffStore = useStaffStore()
 const apiStore = useApiStore()
-const cartStore = useCartStore()
-const activeTab = ref<'STOCK' | 'FURNITURE' | 'STAFF' | 'RENO'>('STOCK')
+const uiStore = useUIStore()
+
+const isShopLoading = computed(() => apiStore.isLoading)
+const shopError = computed(() => apiStore.error)
+
+watch(() => gameStore.showOnlineShop, (opened) => {
+  if (opened) {
+    apiStore.initSeriesShop()
+  }
+})
+
+const hireWorker = (workerId: string) => {
+  const success = gameStore.hireWorker(workerId)
+  if (!success) {
+    alert("Không đủ tiền hoặc Level chưa đạt yêu cầu!")
+  }
+}
+
+const purchaseExpansion = () => {
+  const success = gameStore.buyExpansion()
+  if (!success) {
+    alert("Không đủ tiền hoặc Level chưa đạt yêu cầu mở rộng!")
+  }
+}
+
+const getWorkerData = (id: string) => WORKERS.find((w: any) => w.id === id)
+
+const purchaseFurniture = (id: string, price: number) => {
+  if (statsStore.money < price) {
+    alert("Không đủ tiền sắm nội thất!")
+    return
+  }
+  const success = gameStore.buyFurniture(id)
+  if (success) {
+    // Play cha-ching
+  }
+}
+const activeTab = computed({
+  get: () => uiStore.activeShopTab,
+  set: (val) => uiStore.activeShopTab = val
+})
 
 // Tabs config
 const tabs = [
   { id: 'STOCK', label: 'Chợ Nhập Hàng', icon: 'cart' },
-  { id: 'FURNITURE', label: 'Nội Thất Shop', icon: 'heart' }, // icon map heart for furniture
+  { id: 'FURNITURE', label: 'Nội Thất Shop', icon: 'heart' },
   { id: 'STAFF', label: 'Nhân Sự', icon: 'user' },
-  { id: 'RENO', label: 'Cải Tạo', icon: 'plus' }
+  { id: 'RENO', label: 'Cải Tạo', icon: 'plus' },
+  { id: 'CART', label: 'Giỏ Hàng', icon: 'cart' } // NEW CART TAB
 ] as const
+
+const successToast = ref('')
+const showToast = ref(false)
+
+function triggerATCSuccess(name: string) {
+  successToast.value = `Đã thêm ${name} vào giỏ hàng!`
+  showToast.value = true
+  setTimeout(() => showToast.value = false, 2000)
+}
 
 const groupedShopItems = computed(() => {
   const items = Object.values(inventoryStore.shopItems)
@@ -59,55 +110,20 @@ const scrollToGen = (genName: string) => {
   }
 }
 
-const isShopLoading = computed(() => apiStore.isLoading)
-const shopError = computed(() => apiStore.error)
-
-watch(() => gameStore.showOnlineShop, (opened) => {
-  if (opened) {
-    apiStore.initSeriesShop()
-  }
-})
-
-
-
-const purchaseFurniture = (id: string, price: number) => {
-  if (statsStore.money < price) {
-    alert("Không đủ tiền sắm nội thất!")
-    return
-  }
-  const success = gameStore.buyFurniture(id)
-  if (success) {
-    // Play cha-ching
-  }
-}
-
-const hireWorker = (workerId: string) => {
-  const success = gameStore.hireWorker(workerId)
-  if (!success) {
-    alert("Không đủ tiền hoặc Level chưa đạt yêu cầu!")
-  }
-}
-
-const purchaseExpansion = () => {
-  const success = gameStore.buyExpansion()
-  if (!success) {
-    alert("Không đủ tiền hoặc Level chưa đạt yêu cầu mở rộng!")
-  }
-}
-
-const getWorkerData = (id: string) => WORKERS.find((w: any) => w.id === id)
-
-// Track image loading errors to show fallback icons
-const itemImageErrors = reactive<Record<string, boolean>>({})
-const handleImageError = (id: string) => {
-  itemImageErrors[id] = true
-}
 </script>
 
 <template>
-  <div v-if="gameStore.showOnlineShop" class="absolute inset-0 z-[160] flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto p-4">
-    <div class="bg-white rounded-xl w-[90vw] max-w-[1400px] h-[88vh] flex flex-col shadow-2xl overflow-hidden font-sans">
+  <Transition name="fade-scale">
+  <div v-if="gameStore.showOnlineShop" class="fixed inset-0 z-[160] flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto p-4">
+    <div class="bg-white rounded-xl w-[90vw] max-w-[1400px] h-[88vh] flex flex-col shadow-2xl overflow-hidden font-sans relative">
       
+      <!-- ATC Toast -->
+      <Transition name="slide-down">
+        <div v-if="showToast" class="absolute top-20 left-1/2 -translate-x-1/2 z-[200] bg-emerald-500 text-white px-6 py-3 rounded-full shadow-2xl font-black flex items-center gap-2 border-2 border-white/20">
+          <span>✅</span> {{ successToast }}
+        </div>
+      </Transition>
+
       <!-- Browser Header Toolbar -->
       <div class="bg-gray-200 border-b border-gray-300 px-4 py-3 flex items-center gap-3">
         <div class="flex gap-2">
@@ -133,9 +149,27 @@ const handleImageError = (id: string) => {
 
       <!-- E-commerce Header -->
       <div class="bg-indigo-600 text-white px-8 py-5 flex justify-between items-center shadow-md z-10 relative">
-        <div>
-          <h1 class="text-3xl font-black italic tracking-tighter shadow-black drop-shadow-sm">TCG DISTRIBUTOR HUB</h1>
-          <p class="text-indigo-200 text-sm font-medium">Đối tác cung ứng vật tư & mở rộng kinh doanh</p>
+        <div class="flex items-center gap-6">
+          <div>
+            <h1 class="text-3xl font-black italic tracking-tighter shadow-black drop-shadow-sm">TCG DISTRIBUTOR HUB</h1>
+            <p class="text-indigo-200 text-sm font-medium">Đối tác cung ứng vật tư & mở rộng kinh doanh</p>
+          </div>
+          
+          <!-- Quick Cart Switcher -->
+          <button 
+            @click="activeTab = 'CART'"
+            class="bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl flex items-center gap-3 transition-all border border-white/10 relative"
+            :class="{ 'ring-2 ring-yellow-400 bg-white/20': activeTab === 'CART' }"
+          >
+            <span class="text-2xl">🛒</span>
+            <div class="text-left">
+              <div class="text-[10px] font-black uppercase opacity-60">Giỏ Hàng</div>
+              <div class="text-sm font-black">{{ cartStore.totalItems }} món</div>
+            </div>
+            <div v-if="cartStore.totalItems > 0" class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-indigo-600 font-black">
+              {{ cartStore.totalItems }}
+            </div>
+          </button>
         </div>
         <div class="bg-indigo-800/50 p-2 py-1 rounded border border-indigo-500/50 text-xl font-mono text-yellow-300 font-bold shadow-inner">
           Số dư: {{ formatUSD(statsStore.money) }}
@@ -220,20 +254,13 @@ const handleImageError = (id: string) => {
                       {{ item.type === 'box' ? '📦' : '✨' }}
                     </div>
                     
-                    <!-- Real Image from Registry -->
-                    <template v-if="hasCustomVisual(item.type, item.id) && !itemImageErrors[item.id]">
-                      <img 
-                        :src="item.type === 'pack' ? getPackVisuals(item.id).front : getBoxVisuals(item.id).front" 
-                        class="h-full w-auto object-contain drop-shadow-xl transform group-hover:scale-110 transition-transform duration-500 z-10"
-                        :alt="item.name"
-                        @error="handleImageError(item.id)"
-                      />
-                    </template>
-
-                    <!-- Fallback Icon if no image or error -->
-                    <div v-else class="text-6xl drop-shadow-lg transform group-hover:scale-110 transition-transform duration-500 z-10 select-none">
-                      {{ item.type === 'box' ? '📦' : '🎁' }}
-                    </div>
+                    <ProductImage 
+                      :item-id="item.id" 
+                      :type="item.type" 
+                      :source-set-id="item.sourceSetId"
+                      :alt="item.name"
+                      class="z-10 transform group-hover:scale-110 transition-transform duration-500"
+                    />
                     
                     <!-- Type Badge -->
                     <div class="absolute top-3 left-3 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter"
@@ -540,16 +567,92 @@ const handleImageError = (id: string) => {
           </div>
         </div>
 
+        <!-- Expanded CART Tab -->
+        <div v-if="activeTab === 'CART'" class="flex flex-col gap-6 max-w-4xl mx-auto">
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+              <h2 class="text-lg font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                🛒 GIỎ HÀNG CỦA BẠN <span class="bg-indigo-100 text-indigo-700 px-2.5 py-0.5 rounded-full text-xs">{{ cartStore.totalItems }} items</span>
+              </h2>
+              <button 
+                v-if="cartStore.items.length > 0"
+                @click="cartStore.items = []"
+                class="text-xs text-red-500 font-bold hover:underline"
+              >Xóa tất cả</button>
+            </div>
+
+            <div v-if="cartStore.items.length === 0" class="py-20 text-center flex flex-col items-center gap-4">
+              <div class="text-6xl grayscale opacity-30">📪</div>
+              <p class="text-slate-400 font-bold italic">Giỏ hàng đang trống rỗng...</p>
+              <EnhancedButton variant="primary" size="md" @click="activeTab = 'STOCK'">Tiếp tục mua sắm</EnhancedButton>
+            </div>
+
+            <div v-else class="divide-y divide-slate-100">
+              <div v-for="item in cartStore.items" :key="item.itemId" class="px-8 py-5 flex items-center gap-6 group hover:bg-slate-50 transition-colors">
+                <div class="w-20 h-20 bg-slate-100 rounded-xl overflow-hidden p-2 relative">
+                  <ProductImage :item-id="item.itemId" :type="item.type" :source-set-id="item.sourceSetId" />
+                </div>
+                
+                <div class="flex-grow">
+                  <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{{ item.type }}</div>
+                  <h4 class="font-black text-slate-800 truncate max-w-xs">{{ item.name }}</h4>
+                  <div class="text-indigo-600 font-black text-sm">{{ formatUSD(item.unitPrice) }}</div>
+                </div>
+
+                <div class="flex items-center gap-4">
+                  <div class="flex items-center bg-slate-100 rounded-xl p-1 border border-slate-200">
+                    <button @click="cartStore.updateQuantity(item.itemId, -1)" class="w-8 h-8 rounded-lg hover:bg-white flex items-center justify-center font-black transition-colors">-</button>
+                    <span class="w-12 text-center font-black text-sm">{{ item.quantity }}</span>
+                    <button @click="cartStore.updateQuantity(item.itemId, 1)" class="w-8 h-8 rounded-lg hover:bg-white flex items-center justify-center font-black transition-colors">+</button>
+                  </div>
+                  
+                  <div class="w-32 text-right">
+                    <div class="text-[10px] font-bold text-slate-400 uppercase">Thành tiền</div>
+                    <div class="text-lg font-black text-slate-800">{{ formatUSD(item.unitPrice * item.quantity) }}</div>
+                  </div>
+
+                  <button @click="cartStore.removeItem(item.itemId)" class="text-slate-300 hover:text-red-500 transition-colors p-2 text-xl">✕</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="cartStore.items.length > 0" class="bg-indigo-600 rounded-2xl p-8 text-white shadow-xl flex items-center justify-between">
+            <div class="flex flex-col">
+              <span class="text-indigo-200 text-xs font-black uppercase tracking-[0.2em]">Tổng giá trị đơn hàng</span>
+              <span class="text-4xl font-black tabular-nums tracking-tighter">{{ formatUSD(cartStore.subtotal) }}</span>
+              <p class="text-indigo-300 text-[10px] mt-1">Giao hàng dự kiến trong 1-2 phút sau khi thanh toán.</p>
+            </div>
+            
+            <div class="flex flex-col items-end gap-3">
+               <div v-if="statsStore.money < cartStore.subtotal" class="text-xs font-bold text-red-300 bg-red-900/40 px-4 py-2 rounded-lg border border-red-500/30">
+                 ⚠️ Bạn thiếu {{ formatUSD(cartStore.subtotal - statsStore.money) }}
+               </div>
+               <button 
+                 :disabled="statsStore.money < cartStore.subtotal"
+                 @click="cartStore.checkout()"
+                 class="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 disabled:bg-slate-400 text-indigo-950 px-12 py-5 rounded-2xl font-black text-xl shadow-2xl transition-all hover:scale-105 active:scale-95 flex items-center gap-4"
+               >
+                 🛒 THANH TOÁN NGAY
+               </button>
+            </div>
+          </div>
+        </div>
+
 
       </div>
 
       <AddToCartModal
         v-if="cartStore.addModalItemId"
         :item-id="cartStore.addModalItemId"
-        @close="cartStore.closeAddModal()"
+        @close="(finalItemName) => { 
+          cartStore.closeAddModal(); 
+          if(finalItemName) triggerATCSuccess(finalItemName); 
+        }"
       />
     </div>
   </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -564,5 +667,22 @@ const handleImageError = (id: string) => {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Animations */
+.fade-scale-enter-active, .fade-scale-leave-active {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.fade-scale-enter-from, .fade-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.slide-down-enter-active, .slide-down-leave-active {
+  transition: all 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+.slide-down-enter-from, .slide-down-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -100%);
 }
 </style>

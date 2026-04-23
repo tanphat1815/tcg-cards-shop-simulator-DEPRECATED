@@ -503,6 +503,10 @@ export const useFurnitureStore = defineStore('furniture', {
     },
 
     cancelBuildMode() {
+      // Nếu đang cầm đồ từ kho ra định đặt mà hủy thì phải trả lại kho
+      if (this.buildItemId) {
+        this.purchasedFurniture[this.buildItemId] = (this.purchasedFurniture[this.buildItemId] || 0) + 1
+      }
       this.isBuildMode = false
       this.buildItemId = null
     },

@@ -2,10 +2,10 @@
 import { ref, computed } from 'vue'
 import { useCartStore } from '../store/cartStore'
 import { useInventoryStore } from '../store/inventoryStore'
-import { getPackVisuals, getBoxVisuals } from '../config/assetRegistry'
+import ProductImage from '../../../shared/components/ProductImage.vue'
 
 const props = defineProps<{ itemId: string }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: [itemName?: string] }>()
 
 const cartStore = useCartStore()
 const inventoryStore = useInventoryStore()
@@ -13,12 +13,6 @@ const inventoryStore = useInventoryStore()
 const qty = ref(1)
 
 const item = computed(() => inventoryStore.shopItems[props.itemId])
-const imageUrl = computed(() => {
-  if (!item.value) return ''
-  return item.value.type === 'pack'
-    ? getPackVisuals(item.value.sourceSetId ?? props.itemId).front
-    : getBoxVisuals(item.value.sourceSetId ?? props.itemId).front
-})
 const total = computed(() => (item.value?.buyPrice ?? 0) * qty.value)
 
 import { formatVND } from '../../shared/utils/currency'
@@ -26,7 +20,7 @@ import { formatVND } from '../../shared/utils/currency'
 function confirm() {
   if (!item.value) return
   cartStore.addItem(item.value, qty.value)
-  emit('close')
+  emit('close', item.value.name)
 }
 </script>
 
@@ -48,8 +42,8 @@ function confirm() {
       <div class="flex gap-6 p-6">
         <!-- Left: ảnh + tên + giá đơn vị -->
         <div class="flex-shrink-0 flex flex-col items-center gap-3 w-32">
-          <div class="h-44 w-28 flex items-center justify-center bg-slate-50 rounded-xl overflow-hidden border border-slate-100">
-            <img :src="imageUrl" class="h-full w-auto object-contain" @error="() => {}" />
+          <div class="h-44 w-28 rounded-xl overflow-hidden border border-slate-100 p-2">
+            <ProductImage v-if="item" :item-id="itemId" :type="item.type" :source-set-id="item.sourceSetId" />
           </div>
           <p class="text-xs text-center font-semibold text-slate-600 leading-tight">{{ item?.name }}</p>
           <p class="text-indigo-700 font-black text-base">${{ item?.buyPrice }}</p>

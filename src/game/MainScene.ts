@@ -37,6 +37,7 @@ import { aStarGrid } from '../features/environment/managers/AStarGridManager'
 import gymBuildingImg from '../assets/images/gym_building.svg'
 import { AppConfig } from './config/AppConfig'
 import { eventBus, EVENTS } from '../features/shared/EventBus'
+import { usePlayerPocketStore } from '../features/inventory/store/playerPocketStore'
 import { GAME_BALANCE } from '../config/gameConfig'
 
 export default class MainScene extends Phaser.Scene {
@@ -55,6 +56,7 @@ export default class MainScene extends Phaser.Scene {
 
   // ── Build mode internals ──────────────────────────────────────────────────────
   private keyE!: Phaser.Input.Keyboard.Key
+  private keyF!: Phaser.Input.Keyboard.Key
   private escKey!: Phaser.Input.Keyboard.Key
   private ghostSprite: Phaser.GameObjects.Sprite | null = null
   private ghostRectangle: Phaser.GameObjects.Rectangle | null = null
@@ -64,6 +66,7 @@ export default class MainScene extends Phaser.Scene {
   public previewGraphics!: Phaser.GameObjects.Graphics
   public placementGraphics!: Phaser.GameObjects.Graphics
   private editOverlay!: Phaser.GameObjects.Graphics
+  private vignetteGraphics!: Phaser.GameObjects.Graphics
   private editText!: Phaser.GameObjects.Text
   private storeUnsubscribers: (() => void)[] = []
   private lastPlacementTime: number = 0
@@ -122,6 +125,7 @@ export default class MainScene extends Phaser.Scene {
     this.previewGraphics   = this.add.graphics().setDepth(DEPTH.PREVIEW)
     this.placementGraphics = this.add.graphics().setDepth(DEPTH.PLACEMENT_VISUALIZER)
     this.editOverlay       = this.add.graphics().setDepth(DEPTH.EDIT_OVERLAY).setScrollFactor(0)
+    this.vignetteGraphics   = this.add.graphics().setDepth(DEPTH.EDIT_OVERLAY + 1).setScrollFactor(0)
     this.gatePathway       = this.add.graphics().setDepth(DEPTH.FLOOR + 0.5)
 
     // Managers
@@ -233,7 +237,10 @@ export default class MainScene extends Phaser.Scene {
     const store = useGameStore()
 
     // Managers update
-    if (!store.isBuildMode && !store.isEditMode) {
+    const isEditMode = store.isEditMode
+    const isBuildMode = store.isBuildMode
+
+    if (!isBuildMode && !isEditMode) {
       try {
         this.npcManager.update()
         this.furnitureManager.updateFurnitureVisuals(time)
@@ -248,6 +255,20 @@ export default class MainScene extends Phaser.Scene {
     // E key interaction
     if (Phaser.Input.Keyboard.JustDown(this.keyE)) {
       this.handlePlayerInteraction(store)
+    }
+
+    // Vignette update for edit mode
+    this.updateEditVignette(isEditMode)
+
+    // F key interaction (Pickup/Place furniture)
+    if (Phaser.Input.Keyboard.JustDown(this.keyF)) {
+      if (store.isEditMode && !store.isBuildMode) {
+        // Try to pick up what's under the cursor
+        this.handleFurniturePickup(this.input.activePointer, store)
+      } else if (store.isBuildMode && this.isPlacementValid) {
+        // Drop/Place it
+        this.placeFurniture(this.input.activePointer, store)
+      }
     }
 
     // Build/Edit vs Move
@@ -352,24 +373,64 @@ export default class MainScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────────────────────
 
   private setupInputs() {
+    const statsStore = useStatsStore()
+    const controls = statsStore.settings.controls
+
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.addKeys({
-        up:    Phaser.Input.Keyboard.KeyCodes.W,
-        down:  Phaser.Input.Keyboard.KeyCodes.S,
-        left:  Phaser.Input.Keyboard.KeyCodes.A,
-        right: Phaser.Input.Keyboard.KeyCodes.D,
+        up:    Phaser.Input.Keyboard.KeyCodes[controls.MOVE_UP as keyof typeof Phaser.Input.Keyboard.KeyCodes] || Phaser.Input.Keyboard.KeyCodes.W,
+        down:  Phaser.Input.Keyboard.KeyCodes[controls.MOVE_DOWN as keyof typeof Phaser.Input.Keyboard.KeyCodes] || Phaser.Input.Keyboard.KeyCodes.S,
+        left:  Phaser.Input.Keyboard.KeyCodes[controls.MOVE_LEFT as keyof typeof Phaser.Input.Keyboard.KeyCodes] || Phaser.Input.Keyboard.KeyCodes.A,
+        right: Phaser.Input.Keyboard.KeyCodes[controls.MOVE_RIGHT as keyof typeof Phaser.Input.Keyboard.KeyCodes] || Phaser.Input.Keyboard.KeyCodes.D,
         p:     Phaser.Input.Keyboard.KeyCodes.P
       }) as any
 
-      this.keyE   = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E)
+      this.keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes[controls.INTERACT as keyof typeof Phaser.Input.Keyboard.KeyCodes] || Phaser.Input.Keyboard.KeyCodes.E)
+      this.keyF = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes[controls.PICKUP_ITEM as keyof typeof Phaser.Input.Keyboard.KeyCodes] || Phaser.Input.Keyboard.KeyCodes.F)
       this.escKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
 
-      this.input.keyboard.on('keydown-X', () => useGameStore().toggleEditMode())
-      this.input.keyboard.on('keydown-R', () => {
+      // X: Toggle Edit Mode (Menu xây dựng)
+      this.input.keyboard.on(`keydown-${controls.BUILD_MENU}`, () => {
+        const store = useGameStore()
+        store.toggleEditMode()
+      })
+
+      this.input.keyboard.on(`keydown-${controls.ROTATE_FURNITURE}`, () => {
         this.currentRotation = this.currentRotation === 0 ? 90 : 0
         this.clearGhost()
       })
+      
+      this.input.keyboard.on(`keydown-${controls.POCKET_MENU}`, () => {
+        const pocketStore = usePlayerPocketStore()
+        pocketStore.openPocketModal()
+      })
     }
+  }
+
+  private updateEditVignette(isEditMode: boolean) {
+    this.vignetteGraphics.clear()
+    if (!isEditMode) {
+      if (this.editText.visible) this.editText.setVisible(false)
+      return
+    }
+
+    this.editText.setVisible(true).setText('--- EDIT MODE (FREEZED) ---')
+
+    const w = this.scale.width
+    const h = this.scale.height
+    const thickness = 10
+    
+    // Vẽ viền sọc vàng đen
+    this.vignetteGraphics.lineStyle(thickness, 0x000000, 1)
+    this.vignetteGraphics.strokeRect(thickness/2, thickness/2, w - thickness, h - thickness)
+    
+    this.vignetteGraphics.lineStyle(thickness/2, 0xffcc00, 1)
+    this.vignetteGraphics.beginPath()
+    for (let i = 0; i < w + h; i += 20) {
+      this.vignetteGraphics.moveTo(i, 0)
+      this.vignetteGraphics.lineTo(i - thickness, thickness)
+    }
+    this.vignetteGraphics.strokePath()
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

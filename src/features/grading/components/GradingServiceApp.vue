@@ -90,7 +90,9 @@ function submitAll() {
                     <span class="card-name">{{ apiStore.flatCardMap[p.cardId]?.name ?? p.cardId }}</span>
                   </div>
                   <div class="return-info">
-                    <span class="days-left">Ngày {{ p.returnOnDay }} (còn {{ Math.max(0, p.returnOnDay - statsStore.currentDay) }}d)</span>
+                    <span v-if="p.returnOnDay <= statsStore.currentDay" class="days-left text-green-400 font-bold">✨ Sẵn sàng nhận!</span>
+                    <span v-else-if="p.returnOnDay === statsStore.currentDay + 1" class="days-left text-blue-400">🚚 Về vào ngày mai</span>
+                    <span v-else class="days-left">Giao trả Ngày {{ p.returnOnDay }} (còn {{ p.returnOnDay - statsStore.currentDay }} ngày)</span>
                   </div>
                 </div>
               </li>
@@ -308,7 +310,7 @@ header h2 {
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr); /* 2 columns on phone */
+  grid-template-columns: repeat(4, 1fr); /* 4 columns */
   gap: 12px;
 }
 
