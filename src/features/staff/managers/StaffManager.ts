@@ -14,6 +14,7 @@ import { DeliveryManager } from '../../environment/managers/DeliveryManager'
 import { StateMachine } from '../../shared/StateMachine'
 import type { IState } from '../../shared/StateMachine'
 import { NPCLocomotion } from '../../customer/managers/NPCLocomotion'
+import { useInventoryStore } from '../../inventory/store/inventoryStore'
 
 /** Interface cho AI Agent của nhân viên */
 export interface IStaffAgent {
@@ -223,7 +224,7 @@ class RestockerIdleState implements IState<IStaffAgent> {
     }
   }
 
-  private searchStorageToSelling(agent: IStaffAgent, time: number) {
+  private searchStorageToSelling(agent: IStaffAgent, _time: number) {
     const furnitureStore = useFurnitureStore()
     const sm = (agent.scene as any).staffManager as StaffManager
     const dm = (agent.scene as any).deliveryManager

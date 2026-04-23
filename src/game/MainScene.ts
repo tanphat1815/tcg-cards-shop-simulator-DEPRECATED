@@ -15,6 +15,7 @@ import { useGameStore } from '../features/shop-ui/store/gameStore'
 import { useStatsStore } from '../features/stats/store/statsStore'
 import { useCustomerStore } from '../features/customer/store/customerStore'
 import { useStaffStore } from '../features/staff/store/staffStore'
+import { useCheckoutStore } from '../features/inventory/store/checkoutStore'
 import { WORKERS, SPEED_TO_MS } from '../features/staff/config'
 import { useDeliveryStore } from '../features/inventory/store/deliveryStore'
 import { useFurnitureStore } from '../features/furniture/store/furnitureStore'
@@ -29,6 +30,7 @@ import { useGymStore } from '../features/gym/store/gymStore'
 import { aStarGrid } from '../features/environment/managers/AStarGridManager'
 import gymBuildingImg from '../assets/images/gym_building.svg'
 import { AppConfig } from './config/AppConfig'
+import { eventBus, EVENTS } from '../features/shared/EventBus'
 
 /**
  * MainScene - Trái tim điều khiển (Orchestrator) của trò chơi trong Phaser.
@@ -60,6 +62,7 @@ export default class MainScene extends Phaser.Scene {
   private ghostSprite: Phaser.GameObjects.Sprite | null = null
   private ghostRectangle: Phaser.GameObjects.Rectangle | null = null
   private ghostText: Phaser.GameObjects.Text | null = null
+  private escKey!: Phaser.Input.Keyboard.Key
   private isPlacementValid: boolean = false
   private staffSprites: Map<string, Phaser.Physics.Arcade.Sprite> = new Map()
   private lastAutoCheckoutTime: number = 0
@@ -363,6 +366,7 @@ export default class MainScene extends Phaser.Scene {
       }) as any
       
       this.keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E)
+      this.escKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
       
       // Phím X để bật/tắt nhanh chế độ chỉnh sửa nội thất
       this.input.keyboard.on('keydown-X', () => {
@@ -895,9 +899,6 @@ export default class MainScene extends Phaser.Scene {
     const cooldown = SPEED_TO_MS[workerData.checkoutSpeed]
     if (time > this.lastAutoCheckoutTime + cooldown) {
       // Chỉ auto-checkout nếu Player KHÔNG đang mở manual checkout modal
-      // Chúng ta dùng require lazy ở đây để tránh circular dep nếu cần, 
-      // hoặc dùng useCheckoutStore directly nếu environment đã sẵn sàng.
-      const { useCheckoutStore } = require('../features/inventory/store/checkoutStore')
       const checkoutStore = useCheckoutStore()
 
       if (!checkoutStore.isOpen) {
@@ -943,8 +944,7 @@ export default class MainScene extends Phaser.Scene {
     }
 
     // Thoát chế độ khi nhấn chuột phải hoặc phím ESC
-    const escKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
-    if (Phaser.Input.Keyboard.JustDown(escKey!) || pointer.rightButtonDown()) {
+    if (Phaser.Input.Keyboard.JustDown(this.escKey) || pointer.rightButtonDown()) {
       this.cancelPlacement(store)
     }
   }

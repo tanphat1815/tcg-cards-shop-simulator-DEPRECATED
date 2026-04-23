@@ -69,20 +69,20 @@ function submitAll() {
 
       <div class="service-info">
         <div class="info-item">
-          <span class="label">Phí dịch vụ:</span>
-          <span class="value">${{ GRADING_FEE }} / thẻ</span>
+          <span class="label">Phí:</span>
+          <span class="value">${{ GRADING_FEE }}</span>
         </div>
         <div class="info-item">
-          <span class="label">Thời gian:</span>
-          <span class="value">{{ GRADING_DURATION_DAYS }} ngày</span>
+          <span class="label">Time:</span>
+          <span class="value">{{ GRADING_DURATION_DAYS }}d</span>
         </div>
       </div>
 
       <div class="main-content">
         <!-- Danh sách pending -->
         <section class="pending-section">
-          <h3>Thẻ đang được chấm điểm ({{ gradingStore.pendingGrading.length }})</h3>
-          <div class="pending-scroll">
+          <h3>Thẻ đang chấm ({{ gradingStore.pendingGrading.length }})</h3>
+          <div class="pending-scroll custom-scrollbar">
             <ul v-if="gradingStore.pendingGrading.length > 0">
               <li v-for="p in gradingStore.pendingGrading" :key="p.cardId + p.sentOnDay">
                 <div class="pending-item">
@@ -90,21 +90,21 @@ function submitAll() {
                     <span class="card-name">{{ apiStore.flatCardMap[p.cardId]?.name ?? p.cardId }}</span>
                   </div>
                   <div class="return-info">
-                    <span class="days-left">Trả về ngày {{ p.returnOnDay }} ({{ Math.max(0, p.returnOnDay - statsStore.currentDay) }} ngày nữa)</span>
+                    <span class="days-left">Ngày {{ p.returnOnDay }} (còn {{ Math.max(0, p.returnOnDay - statsStore.currentDay) }}d)</span>
                   </div>
                 </div>
               </li>
             </ul>
             <div v-else class="empty-state">
-              <p>Chưa có thẻ nào đang được gửi đi.</p>
+              <p>Chưa có thẻ nào đang được gửi.</p>
             </div>
           </div>
         </section>
 
         <!-- Picker -->
         <section class="picker-section">
-          <h3>Chọn thẻ từ Binder để gửi:</h3>
-          <div class="cards-grid-container">
+          <h3>Chọn thẻ từ Binder:</h3>
+          <div class="cards-grid-container custom-scrollbar">
             <div v-if="availableCards.length > 0" class="cards-grid">
               <div
                 v-for="entry in availableCards" :key="entry.id"
@@ -151,31 +151,24 @@ function submitAll() {
 
 <style scoped>
 .grading-app-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
-  z-index: 200;
+  z-index: 10;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
 }
 
 .grading-app-panel {
-  width: 900px;
-  height: 80vh;
+  flex: 1;
   background: #1a1a1a;
-  border: 2px solid #333;
-  border-radius: 12px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
   color: #eee;
 }
 
 header {
-  padding: 16px 24px;
+  padding: 10px 16px;
   background: #252525;
   border-bottom: 2px solid #333;
   display: flex;
@@ -239,31 +232,29 @@ header h2 {
 
 .main-content {
   flex: 1;
-  display: grid;
-  grid-template-columns: 300px 1fr;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto; /* This is now the main scrollable area */
+  padding-bottom: 20px;
 }
 
 .pending-section {
   background: #1e1e1e;
-  border-right: 1px solid #333;
-  display: flex;
-  flex-direction: column;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0; /* Don't shrink it */
 }
 
 .pending-section h3, .picker-section h3 {
-  padding: 16px 20px;
+  padding: 10px 16px;
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
-  color: #666;
-  letter-spacing: 1px;
+  color: #888;
+  letter-spacing: 0.5px;
 }
 
 .pending-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 16px 16px;
+  padding: 0 12px 12px;
 }
 
 .pending-scroll ul {
@@ -307,21 +298,18 @@ header h2 {
 }
 
 .picker-section {
-  display: flex;
-  flex-direction: column;
   background: #1a1a1a;
+  flex-shrink: 0;
 }
 
 .cards-grid-container {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 20px 20px;
+  padding: 0 12px 12px;
 }
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(2, 1fr); /* 2 columns on phone */
+  gap: 12px;
 }
 
 .card-wrapper {

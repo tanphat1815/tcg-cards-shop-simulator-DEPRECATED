@@ -113,6 +113,10 @@ export const useCheckoutStore = defineStore('checkout', {
       this.isSuccess = false
       this.posError = false
 
+      // C5: Khóa khách hàng trong queue để Staff AI không can thiệp
+      const customerStore = useCustomerStore()
+      customerStore.lockCustomer(customerInstanceId)
+
       // Random payment method (50/50)
       this.paymentMethod = Math.random() < 0.5 ? 'CASH' : 'CARD'
 
@@ -141,6 +145,11 @@ export const useCheckoutStore = defineStore('checkout', {
       this.posInputString = ''
       this.posError = false
       this.isSuccess = false
+
+      // C5: Nếu hủy ngang, mở khóa khách hàng để Staff AI có thể phục vụ lại
+      if (this.customerInstanceId) {
+        useCustomerStore().unlockCustomer(this.customerInstanceId)
+      }
     },
 
     // ──────────────────────────────────────────────

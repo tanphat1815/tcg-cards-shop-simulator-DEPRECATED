@@ -233,25 +233,26 @@ export const useFurnitureStore = defineStore('furniture', {
     },
 
     /**
-     * Lấy 1 món đồ từ kệ (không trả về inventory, chỉ pop khỏi slots).
-     * Trả về itemId nếu lấy thành công.
+     * Lấy N món đồ từ kệ. Trả về số lượng thực tế đã lấy được.
      */
-    takeItemFromTierSimple(shelfId: string, tierIndex: number): string | null {
+    takeItemFromTierSimple(shelfId: string, tierIndex: number, quantity: number = 1): number {
       const shelf = this.placedShelves[shelfId]
-      if (!shelf) return null
+      if (!shelf) return 0
 
       const tier = shelf.tiers[tierIndex]
-      if (!tier.itemId || tier.slots.length === 0) return null
+      if (!tier.itemId || tier.slots.length === 0) return 0
 
-      const itemId = tier.itemId
-      tier.slots.pop()
+      const toTake = Math.min(quantity, tier.slots.length)
+      for (let i = 0; i < toTake; i++) {
+        tier.slots.pop()
+      }
 
       // Nếu tầng trống hẳn thì xóa luôn itemId
       if (tier.slots.length === 0) {
         tier.itemId = null
         tier.maxSlots = 0
       }
-      return itemId
+      return toTake
     },
 
     /**
@@ -260,8 +261,15 @@ export const useFurnitureStore = defineStore('furniture', {
     takeItemFromTier(shelfId: string, tierIndex: number) {
       const pocketStore = usePlayerPocketStore()
       const inventoryStore = useInventoryStore()
-      const itemId = this.takeItemFromTierSimple(shelfId, tierIndex)
+      const shelf = this.placedShelves[shelfId]
+      if (!shelf) return
+
+      const tier = shelf.tiers[tierIndex]
+      const itemId = tier.itemId
       if (!itemId) return
+
+      const taken = this.takeItemFromTierSimple(shelfId, tierIndex, 1)
+      if (taken === 0) return
 
       // Trả lại vào Túi
       const shopItem = inventoryStore.shopItems[itemId]

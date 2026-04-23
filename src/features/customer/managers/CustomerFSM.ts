@@ -11,7 +11,7 @@ import { useApiStore } from '../../inventory/store/apiStore'
 import { useEventStore } from '../../events/store/eventStore'
 import { getRawPrice } from '../../shared/utils/currency'
 import { DEPTH } from '../../environment/config'
-import { eventBus, EVENTS } from '../../shared/EventBus'
+import { eventBus } from '../../shared/EventBus'
 import type { CustomerData } from '../types'
 
 /** Interface mở rộng cho Customer Agency */

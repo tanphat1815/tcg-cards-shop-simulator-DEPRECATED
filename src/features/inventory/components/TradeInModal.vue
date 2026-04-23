@@ -2,12 +2,9 @@
 import { ref, computed, watch } from 'vue'
 import { useTradeInStore } from '../store/tradeInStore'
 import { useApiStore } from '../store/apiStore'
-import { useGameStore } from '../../shop-ui/store/gameStore'
-import { eventBus } from '../../shared/EventBus'
 
 const tradeStore = useTradeInStore()
 const apiStore = useApiStore()
-const gameStore = useGameStore()
 
 const offerInput = ref<string>('')
 

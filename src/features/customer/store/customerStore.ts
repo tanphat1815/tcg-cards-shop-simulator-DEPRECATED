@@ -10,7 +10,7 @@ export const useCustomerStore = defineStore('customer', {
     shopState: 'CLOSED' as 'OPEN' | 'CLOSED',
     
     /** Hàng chờ thanh toán (First-in, First-out) */
-    waitingQueue: [] as { instanceId: string, price: number, arrivedAt: number }[],
+    waitingQueue: [] as { instanceId: string, price: number, arrivedAt: number, isProcessing?: boolean }[],
     
     /** Số lượng khách đã phục vụ trong ngày (tracking mới) */
     servedToday: 0,
@@ -49,15 +49,17 @@ export const useCustomerStore = defineStore('customer', {
     },
 
     /**
-     * Phục vụ khách hàng đứng đầu hàng chờ.
+     * Phục vụ khách hàng đứng đầu hàng chờ (và KHÔNG đang bị Manual Checkout).
      * Cộng tiền và trả về ID khách để Phaser giải phóng NPC.
      */
     serveCustomer(): string | null {
       const statsStore = useStatsStore()
       
-      const entry = this.waitingQueue.shift()
-      if (!entry) return null
+      // Lấy khách đầu tiên KHÔNG đang bị xử lý thủ công
+      const index = this.waitingQueue.findIndex(q => !q.isProcessing)
+      if (index === -1) return null
 
+      const entry = this.waitingQueue.splice(index, 1)[0]
       const { instanceId, price } = entry
       
       // Cập nhật thống kê tài chính qua statsStore
@@ -69,6 +71,22 @@ export const useCustomerStore = defineStore('customer', {
       this.servedToday++
       
       return instanceId
+    },
+
+    /**
+     * Đánh dấu một khách hàng là đang được xử lý (lock) để tránh Staff AI can thiệp.
+     */
+    lockCustomer(instanceId: string) {
+      const entry = this.waitingQueue.find(q => q.instanceId === instanceId)
+      if (entry) entry.isProcessing = true
+    },
+
+    /**
+     * Mở khóa khách hàng (nếu Player hủy manual checkout).
+     */
+    unlockCustomer(instanceId: string) {
+      const entry = this.waitingQueue.find(q => q.instanceId === instanceId)
+      if (entry) entry.isProcessing = false
     },
 
     /**

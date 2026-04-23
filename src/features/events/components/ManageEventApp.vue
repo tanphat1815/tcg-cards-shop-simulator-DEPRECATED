@@ -45,133 +45,119 @@ function formatEffectLine(eff: { target: string; value: string; multiplier: numb
 </script>
 
 <template>
-  <div v-if="isOpen" class="smartphone-overlay">
-    <div class="smartphone-frame">
-      <!-- Header -->
-      <header class="app-header">
-        <h2>🎮 Manage Event</h2>
-        <button class="close" @click="emit('close')">✕</button>
-      </header>
+  <div v-if="isOpen" class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <h2>🎮 Manage Event</h2>
+      <button class="close" @click="emit('close')">✕</button>
+    </header>
 
-      <!-- Picker Modal (Edit) -->
-      <div v-if="showPicker" class="picker-sheet">
-        <h3>Chọn sự kiện cho ngày mai:</h3>
-        <ul class="event-list">
-          <li
-            v-for="ev in availableEvents" :key="ev.id"
-            :class="{ current: ev.id === eventStore.nextEventId }"
-            @click="selectEvent(ev.id)"
-          >
-            <span class="icon">{{ ev.icon }}</span>
-            <span class="name">{{ ev.name }}</span>
-            <span class="cost">
-              <span class="cost-day">${{ ev.dailyCost }}/day</span>
-              <span class="cost-hr">${{ ev.hourlyFee }}/hr</span>
-            </span>
-          </li>
-        </ul>
-        <EnhancedButton variant="secondary" size="md" fullWidth @click="showPicker = false">
-          Huỷ
-        </EnhancedButton>
-      </div>
+    <!-- Picker Modal (Edit) -->
+    <div v-if="showPicker" class="picker-sheet">
+      <h3>Chọn sự kiện cho ngày mai:</h3>
+      <ul class="event-list">
+        <li
+          v-for="ev in availableEvents" :key="ev.id"
+          :class="{ current: ev.id === eventStore.nextEventId }"
+          @click="selectEvent(ev.id)"
+        >
+          <span class="icon">{{ ev.icon }}</span>
+          <span class="name">{{ ev.name }}</span>
+          <span class="cost">
+            <span class="cost-day">${{ ev.dailyCost }}/day</span>
+            <span class="cost-hr">${{ ev.hourlyFee }}/hr</span>
+          </span>
+        </li>
+      </ul>
+      <EnhancedButton variant="secondary" size="md" fullWidth @click="showPicker = false">
+        Huỷ
+      </EnhancedButton>
+    </div>
 
-      <!-- Main View -->
-      <div v-else class="app-body">
-        <!-- Next Event Card -->
-        <section v-if="eventStore.nextEvent" class="event-card next">
-          <div class="card-title">
-            <span class="tag-next">NEXT DAY</span>
-            <h3>{{ eventStore.nextEvent.icon }} {{ eventStore.nextEvent.name }}</h3>
-            <p>{{ eventStore.nextEvent.format }}</p>
-          </div>
-
-          <div class="card-stats">
-            <div>
-              <span class="label">Fee</span>
-              <span class="value">${{ eventStore.nextEvent.hourlyFee }}/hr</span>
-            </div>
-            <div>
-              <span class="label">Cost</span>
-              <span class="value">${{ eventStore.nextEvent.dailyCost }}/day</span>
-            </div>
-          </div>
-
-          <p class="card-desc">{{ eventStore.nextEvent.description }}</p>
-
-          <!-- Effects -->
-          <div class="effects-list">
-            <h4>Possible Effects:</h4>
-            <div
-              v-for="(eff, idx) in eventStore.nextEvent.effects" :key="idx"
-              class="effect-row"
-              :class="formatEffectLine(eff).color"
-            >
-              <span class="effect-emoji">{{ formatEffectLine(eff).emoji }}</span>
-              <span class="effect-text">
-                {{ formatEffectLine(eff).sign }} {{ formatEffectLine(eff).desc }}
-              </span>
-              <span class="effect-mult">×{{ formatEffectLine(eff).mult }}</span>
-            </div>
-          </div>
-
-          <EnhancedButton
-            variant="primary" size="md" fullWidth
-            @click="showPicker = true"
-          >
-            Edit Event
-          </EnhancedButton>
-        </section>
-
-        <!-- Today's Status -->
-        <section v-if="eventStore.activeEvent" class="today-card">
-          <div class="today-header">
-            <span class="today-label">TODAY</span>
-            <h4>{{ eventStore.activeEvent.icon }} {{ eventStore.activeEvent.name }}</h4>
-          </div>
-          <div class="today-stats">
-            <div>
-              <span class="stat-label">Revenue today</span>
-              <span class="stat-value">${{ eventStore.eventRevenueToday.toFixed(2) }}</span>
-            </div>
-            <div>
-              <span class="stat-label">Players paid</span>
-              <span class="stat-value">{{ eventStore.playersPaidToday }}</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- Counter -->
-        <div class="total-hosted">
-          Total Players Hosted:
-          <strong>{{ eventStore.totalPlayersHosted }}</strong>
+    <!-- Main View -->
+    <div v-else class="app-body">
+      <!-- Next Event Card -->
+      <section v-if="eventStore.nextEvent" class="event-card next">
+        <div class="card-title">
+          <span class="tag-next">NEXT DAY</span>
+          <h3>{{ eventStore.nextEvent.icon }} {{ eventStore.nextEvent.name }}</h3>
+          <p>{{ eventStore.nextEvent.format }}</p>
         </div>
 
-        <!-- Confirm btn -->
-        <EnhancedButton variant="success" size="lg" fullWidth @click="confirm">
-          Confirm Event
+        <div class="card-stats">
+          <div>
+            <span class="label">Fee</span>
+            <span class="value">${{ eventStore.nextEvent.hourlyFee }}/hr</span>
+          </div>
+          <div>
+            <span class="label">Cost</span>
+            <span class="value">${{ eventStore.nextEvent.dailyCost }}/day</span>
+          </div>
+        </div>
+
+        <p class="card-desc">{{ eventStore.nextEvent.description }}</p>
+
+        <!-- Effects -->
+        <div class="effects-list">
+          <h4>Possible Effects:</h4>
+          <div
+            v-for="(eff, idx) in eventStore.nextEvent.effects" :key="idx"
+            class="effect-row"
+            :class="formatEffectLine(eff).color"
+          >
+            <span class="effect-emoji">{{ formatEffectLine(eff).emoji }}</span>
+            <span class="effect-text">
+              {{ formatEffectLine(eff).sign }} {{ formatEffectLine(eff).desc }}
+            </span>
+            <span class="effect-mult">×{{ formatEffectLine(eff).mult }}</span>
+          </div>
+        </div>
+
+        <EnhancedButton
+          variant="primary" size="md" fullWidth
+          @click="showPicker = true"
+        >
+          Edit Event
         </EnhancedButton>
+      </section>
+
+      <!-- Today's Status -->
+      <section v-if="eventStore.activeEvent" class="today-card">
+        <div class="today-header">
+          <span class="today-label">TODAY</span>
+          <h4>{{ eventStore.activeEvent.icon }} {{ eventStore.activeEvent.name }}</h4>
+        </div>
+        <div class="today-stats">
+          <div>
+            <span class="stat-label">Revenue today</span>
+            <span class="stat-value">${{ eventStore.eventRevenueToday.toFixed(2) }}</span>
+          </div>
+          <div>
+            <span class="stat-label">Players paid</span>
+            <span class="stat-value">{{ eventStore.playersPaidToday }}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Counter -->
+      <div class="total-hosted">
+        Total Players Hosted:
+        <strong>{{ eventStore.totalPlayersHosted }}</strong>
       </div>
+
+      <!-- Confirm btn -->
+      <EnhancedButton variant="success" size="lg" fullWidth @click="confirm">
+        Confirm Event
+      </EnhancedButton>
     </div>
   </div>
 </template>
 
 <style scoped>
-.smartphone-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  z-index: 300;
-  display: flex; align-items: center; justify-content: center;
-}
-
-.smartphone-frame {
-  width: 380px; max-width: 90vw;
-  max-height: 85vh;
+.app-container {
+  position: absolute; inset: 0;
   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-  border: 3px solid #334155;
-  border-radius: 28px;
-  overflow: hidden;
   display: flex; flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
 .app-header {

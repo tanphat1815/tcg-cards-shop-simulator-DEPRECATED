@@ -172,8 +172,8 @@ export class AStarGridManager {
     open.push(startNode)
 
     while (open.length > 0) {
-      // Lấy node có f nhỏ nhất
-      open.sort((a, b) => a.f - b.f)
+      // 🆕 PERFORMANCE FIX (H1): Thay thế open.sort() — vốn chạy O(n log n) mỗi vòng lặp — bằng 
+      // việc lấy thẳng node f nhỏ nhất từ đầu mảng (mảng luôn được bảo trì ở trạng thái đã sort).
       const current = open.shift()!
       const key = `${current.x},${current.y}`
       if (closed.has(key)) continue
@@ -210,7 +210,17 @@ export class AStarGridManager {
           neighbor.f = neighbor.g + neighbor.h
 
           if (!open.includes(neighbor)) {
-            open.push(neighbor)
+            // 🆕 PERFORMANCE FIX (H1): Chèn node vào mảng 'open' theo thứ tự tăng dần của f 
+            // để tránh phải gọi sort() toàn bộ mảng ở vòng lặp sau.
+            let inserted = false
+            for (let i = 0; i < open.length; i++) {
+              if (neighbor.f < open[i].f) {
+                open.splice(i, 0, neighbor)
+                inserted = true
+                break
+              }
+            }
+            if (!inserted) open.push(neighbor)
           }
         }
       }

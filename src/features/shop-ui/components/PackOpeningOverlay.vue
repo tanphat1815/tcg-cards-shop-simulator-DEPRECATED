@@ -56,7 +56,7 @@ const packImageUrl = computed(() => {
 // ─── Watch: Reset state khi pack mới được mở ──────────────────────────────
 watch(
   () => [isVisible.value, cards.value.length, inventoryStore.currentPackSetId] as [boolean, number, string | null],
-  ([isOpening, count, setId]) => {
+  ([isOpening, count]) => {
     if (isOpening && count > 0) {
       flipped.value = new Array(count).fill(false)
       revealClasses.value = new Array(count).fill('')

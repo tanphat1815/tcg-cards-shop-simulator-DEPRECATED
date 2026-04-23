@@ -199,10 +199,10 @@ const isInventoryMinimized = ref(false)
               variant="primary"
               size="md"
               :icon="{ name: 'star', position: 'left' }"
-              @click="uiStore.showManageEvent = true"
-              title="Quản lý sự kiện tại bàn chơi"
+              @click="uiStore.toggleSmartphone(true)"
+              title="Mở Smartphone - Quản lý sự kiện & Chấm điểm thẻ"
             >
-              🎮 EVENT
+              📱 SMARTPHONE
             </EnhancedButton>
             <CartButton />
 

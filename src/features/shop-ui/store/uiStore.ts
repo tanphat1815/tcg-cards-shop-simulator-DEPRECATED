@@ -13,6 +13,9 @@ export const useUIStore = defineStore('ui', {
     showOnlineShop: false,
     showManageEvent: false,
 
+    // Smartphone State
+    showSmartphone: false,
+    activeApp: 'home' as 'home' | 'events' | 'grading',
     
     // Tham chiếu đến vật phẩm UI đang tương tác
     activeShelfId: null as string | null,
@@ -21,6 +24,17 @@ export const useUIStore = defineStore('ui', {
   }),
   
   actions: {
+    toggleSmartphone(show?: boolean) {
+      this.showSmartphone = show ?? !this.showSmartphone
+      if (this.showSmartphone) {
+        this.activeApp = 'home'
+      }
+    },
+
+    setActiveApp(app: 'home' | 'events' | 'grading') {
+      this.activeApp = app
+    },
+
     toggleOnlineShop(show?: boolean) {
       this.showOnlineShop = show ?? !this.showOnlineShop
     },

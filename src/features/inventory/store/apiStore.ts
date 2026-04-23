@@ -190,8 +190,7 @@ export const useApiStore = defineStore('api', {
         const data = {
           version: API_CACHE_VERSION,
           sets: this.sets,
-          shopItems: this.shopItems,
-          setCardsCache: this.setCardsCache
+          shopItems: this.shopItems
         }
         localStorage.setItem('tcg-shop-api-cache', JSON.stringify(data))
       } catch (e) {

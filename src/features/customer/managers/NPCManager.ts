@@ -18,10 +18,9 @@ export class NPCManager {
   private environmentManager: EnvironmentManager
   private agents: Map<string, CustomerAgent> = new Map()
   private unsubscribers: (() => void)[] = []
-  private lastSpawnTime = 0
-  private spawnInterval = 3000 // Tăng lên 3s một người
   private MAX_WAITING_CUSTOMERS = 10
   private _queueSlots: WorldPoint[] = []
+  private tradeInLeaveHandler: ((ev: Event) => void) | null = null
 
   public get queueSlots(): WorldPoint[] {
     return this._queueSlots
@@ -37,11 +36,13 @@ export class NPCManager {
     )
 
     // Listen for Trade-In NPC leave requests
-    window.addEventListener('trade-in:npc-leave', ((ev: CustomEvent) => {
+    this.tradeInLeaveHandler = ((ev: CustomEvent) => {
       const { instanceId } = ev.detail
       const agent = this.agents.get(instanceId)
       if (agent) agent.leaveShop()
-    }) as EventListener)
+    }) as EventListener
+
+    window.addEventListener('trade-in:npc-leave', this.tradeInLeaveHandler)
   }
 
   public update() {
@@ -203,6 +204,10 @@ export class NPCManager {
   public destroy() {
     this.cleanupAllNPCs()
     this.unsubscribers.forEach(u => u())
+    if (this.tradeInLeaveHandler) {
+      window.removeEventListener('trade-in:npc-leave', this.tradeInLeaveHandler)
+      this.tradeInLeaveHandler = null
+    }
   }
 
   public getNPCCount(): number {

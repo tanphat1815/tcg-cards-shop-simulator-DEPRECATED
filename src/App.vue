@@ -24,7 +24,7 @@ import GradingReveal from './features/grading/components/GradingReveal.vue'
 import { useGradingStore } from './features/grading/store/gradingStore'
 import { useEventStore } from './features/events/store/eventStore'
 import { useUIStore } from './features/shop-ui/store/uiStore'
-import ManageEventApp from './features/events/components/ManageEventApp.vue'
+import Smartphone from './features/shop-ui/components/Smartphone.vue'
 import CheckoutModal from './features/inventory/components/CheckoutModal.vue'
 import PocketModal from './features/inventory/components/PocketModal.vue'
 
@@ -112,9 +112,8 @@ onMounted(() => {
     <SetPriceModal />
     <HoldingHandHUD />
     <TradeInModal />
-    <GradingServiceApp :is-open="gradingStore.showGradingApp" @close="gradingStore.setShowGradingApp(false)" />
+    <Smartphone />
     <GradingReveal />
-    <ManageEventApp :is-open="uiStore.showManageEvent" @close="uiStore.showManageEvent = false" />
     <CheckoutModal />
     <PocketModal />
   </div>

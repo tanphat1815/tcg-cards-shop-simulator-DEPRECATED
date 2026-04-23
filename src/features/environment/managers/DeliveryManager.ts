@@ -39,6 +39,8 @@ export class DeliveryManager {
   private keyB!: Phaser.Input.Keyboard.Key
   private hintText!: Phaser.GameObjects.Text
   private packageSprites: Map<string, Phaser.GameObjects.Sprite> = new Map()
+  private gradingArrivedHandler: ((ev: Event) => void) | null = null
+  private gradingConsumedHandler: ((ev: Event) => void) | null = null
 
 
   constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager) {
@@ -89,15 +91,18 @@ export class DeliveryManager {
     }).setDepth(999).setScrollFactor(0).setVisible(false)
 
     // 4. Lắng nghe event Grading Package
-    window.addEventListener('grading:package-arrived', ((ev: CustomEvent) => {
+    this.gradingArrivedHandler = ((ev: CustomEvent) => {
       const { packageId } = ev.detail
       this.spawnGradingPackage(packageId)
-    }) as EventListener)
+    }) as EventListener
 
-    window.addEventListener('grading:package-consumed', ((ev: CustomEvent) => {
+    this.gradingConsumedHandler = ((ev: CustomEvent) => {
       const { packageId } = ev.detail
       this.removeGradingPackage(packageId)
-    }) as EventListener)
+    }) as EventListener
+
+    window.addEventListener('grading:package-arrived', this.gradingArrivedHandler)
+    window.addEventListener('grading:package-consumed', this.gradingConsumedHandler)
   }
 
   update(time: number, playerX: number, playerY: number) {
@@ -647,5 +652,14 @@ export class DeliveryManager {
     this.boxGroup.clear(true, true)
     this.deliveryZoneGroup.clear(true, true)
     this.hintText.destroy()
+
+    if (this.gradingArrivedHandler) {
+      window.removeEventListener('grading:package-arrived', this.gradingArrivedHandler)
+      this.gradingArrivedHandler = null
+    }
+    if (this.gradingConsumedHandler) {
+      window.removeEventListener('grading:package-consumed', this.gradingConsumedHandler)
+      this.gradingConsumedHandler = null
+    }
   }
 }
