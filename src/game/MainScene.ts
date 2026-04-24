@@ -517,6 +517,7 @@ export default class MainScene extends Phaser.Scene {
     try {
       const worldStore = useWorldStore()
       const projectedAwayStaffIds = worldStore.assignedTownStaffSourceIds ?? []
+      const projectedAwayNPCIds = worldStore.assignedTownNPCSourceIds ?? []
 
       worldStore.syncPlayerSnapshot(SHOP_SCENE_KEY, {
         x: this.player?.x ?? 0,
@@ -526,6 +527,7 @@ export default class MainScene extends Phaser.Scene {
 
       worldStore.syncNPCSnapshots('shop', this.npcManager?.getWorldSnapshots?.() ?? [])
       worldStore.syncStaffSnapshots('shop', this.staffManager?.getWorldSnapshots?.() ?? [])
+      this.npcManager?.setProjectedAwayNPCIds?.(projectedAwayNPCIds)
       this.staffManager?.setProjectedAwayStaffIds?.(projectedAwayStaffIds)
     } catch (error) {
       console.error('[MainScene] Failed to sync world snapshots:', error)

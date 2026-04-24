@@ -17,10 +17,13 @@ import { createDropShadow } from '../../environment/ySortUtils'
 import { GAME_BALANCE } from '../../../config/gameConfig'
 import type { NPCWorldSnapshot } from '../../world/constants'
 
+const AMBIENT_PROJECTABLE_STATES = ['WANDER', 'SPAWN']
+
 export class NPCManager {
   private scene: Phaser.Scene
   private environmentManager: EnvironmentManager
   private agents: Map<string, CustomerAgent> = new Map()
+  private projectedAwayNPCIds: Set<string> = new Set()
   private unsubscribers: (() => void)[] = []
   private npcGroup: Phaser.Physics.Arcade.Group
   private _queueSlots: WorldPoint[] = []
@@ -53,7 +56,10 @@ export class NPCManager {
   public update() {
     const now = this.scene.time.now
     const delta = this.scene.game.loop.delta
-    this.agents.forEach(agent => agent.update(now, delta))
+    this.agents.forEach(agent => {
+      if (!agent.sprite.visible) return
+      agent.update(now, delta)
+    })
   }
 
   public initializeNPCs() {
@@ -212,6 +218,7 @@ export class NPCManager {
 
   public destroy() {
     this.cleanupAllNPCs()
+    this.projectedAwayNPCIds.clear()
     this.unsubscribers.forEach(u => u())
     if (this.tradeInLeaveHandler) {
       window.removeEventListener('trade-in:npc-leave', this.tradeInLeaveHandler)
@@ -235,5 +242,38 @@ export class NPCManager {
       intent: agent.data.intent || 'BUY',
       lastUpdatedAt: now
     }))
+  }
+
+  public setProjectedAwayNPCIds(instanceIds: string[]) {
+    try {
+      const next = new Set((instanceIds || []).filter((id) => typeof id === 'string' && id.length > 0))
+      this.projectedAwayNPCIds = next
+      this.agents.forEach((agent) => this.applyProjectedVisibilityForAgent(agent))
+    } catch (error) {
+      console.error('[NPCManager] setProjectedAwayNPCIds failed:', error)
+    }
+  }
+
+  private applyProjectedVisibilityForAgent(agent: CustomerAgent) {
+    try {
+      const currentState = agent.fsm?.current || agent.data.state || ''
+      const isAmbientProjectable = AMBIENT_PROJECTABLE_STATES.includes(currentState)
+      const shouldProjectAway = isAmbientProjectable && this.projectedAwayNPCIds.has(agent.data.instanceId)
+      const shouldBeVisible = !shouldProjectAway
+
+      agent.sprite.setVisible(shouldBeVisible)
+      if (agent.statusText) agent.statusText.setVisible(shouldBeVisible)
+      if (agent.data.shadow) agent.data.shadow.setVisible(shouldBeVisible)
+
+      const body = agent.sprite.body as Phaser.Physics.Arcade.Body | undefined
+      if (body) body.enable = shouldBeVisible
+
+      if (!shouldBeVisible) {
+        agent.locomotion.stop()
+        agent.sprite.setVelocity(0, 0)
+      }
+    } catch (error) {
+      console.error('[NPCManager] applyProjectedVisibilityForAgent failed:', error)
+    }
   }
 }
