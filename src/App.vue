@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import { AppConfig } from './game/config/AppConfig'
 import GameContainer from './features/shop-ui/components/GameContainer.vue'
 import UIOverlay from './features/shop-ui/components/UIOverlay.vue'
@@ -23,6 +23,7 @@ import { useEventStore } from './features/events/store/eventStore'
 import AdminTablet from './features/shop-ui/components/AdminTablet.vue'
 import CheckoutModal from './features/inventory/components/CheckoutModal.vue'
 import PocketModal from './features/inventory/components/PocketModal.vue'
+import SettingsModal from './features/shop-ui/components/SettingsModal.vue'
 
 import { useStatsStore } from './features/stats/store/statsStore'
 import { useInventoryStore } from './features/inventory/store/inventoryStore'
@@ -34,6 +35,7 @@ import { usePlayerHandStore } from './features/inventory/store/playerHandStore'
 import { useTradeInStore } from './features/inventory/store/tradeInStore'
 import { usePlayerPocketStore } from './features/inventory/store/playerPocketStore'
 import { eventBus, EVENTS } from './features/shared/EventBus'
+import { WorldSimulationController } from './features/world/WorldSimulationController'
 
 const store = useGameStore()
 const statsStore = useStatsStore()
@@ -47,10 +49,13 @@ const tradeInStore = useTradeInStore()
 const gradingStore = useGradingStore()
 const eventStore = useEventStore()
 const pocketStore = usePlayerPocketStore()
+const simulationController = new WorldSimulationController()
+const cleanupCallbacks: Array<() => void> = []
 
 
 onMounted(() => {
   store.loadSave()
+  simulationController.start()
   
   // Subscribe vào TẤT CẢ store con để auto-save (có giới hạn tần suất - throttle)
   let lastSaveTime = 0
@@ -66,24 +71,34 @@ onMounted(() => {
      }
   }
 
-  statsStore.$subscribe(saveCallback, { deep: true })
-  inventoryStore.$subscribe(saveCallback, { deep: true })
-  furnitureStore.$subscribe(saveCallback, { deep: true })
-  customerStore.$subscribe(saveCallback, { deep: true })
-  deliveryStore.$subscribe(saveCallback, { deep: true })
-  staffStore.$subscribe(saveCallback, { deep: true })
-  playerHandStore.$subscribe(saveCallback, { deep: true })
-  tradeInStore.$subscribe(saveCallback, { deep: true })
-  gradingStore.$subscribe(saveCallback, { deep: true })
-  eventStore.$subscribe(saveCallback, { deep: true })
-  pocketStore.$subscribe(saveCallback, { deep: true })
+  cleanupCallbacks.push(statsStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(inventoryStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(furnitureStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(customerStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(deliveryStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(staffStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(playerHandStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(tradeInStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(gradingStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(eventStore.$subscribe(saveCallback, { deep: true }))
+  cleanupCallbacks.push(pocketStore.$subscribe(saveCallback, { deep: true }))
 
 
   // Lắng nghe sự kiện từ NPC AI (Phaser -> Vue)
-  eventBus.on(EVENTS.NPC_TRADE_REQUEST, ({ instanceId, cardId }) => {
+  const offTradeRequest = eventBus.on(EVENTS.NPC_TRADE_REQUEST, ({ instanceId, cardId }) => {
     tradeInStore.startTrade(instanceId, cardId)
   })
+  cleanupCallbacks.push(offTradeRequest)
 
+})
+
+onUnmounted(() => {
+  simulationController.stop()
+
+  while (cleanupCallbacks.length > 0) {
+    const cleanup = cleanupCallbacks.pop()
+    cleanup?.()
+  }
 })
 </script>
 

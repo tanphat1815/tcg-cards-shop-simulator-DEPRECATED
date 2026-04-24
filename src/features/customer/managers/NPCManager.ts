@@ -15,6 +15,7 @@ import type { CustomerIntent, CustomerData } from '../types'
 import { aStarGrid, type WorldPoint } from '../../environment/managers/AStarGridManager'
 import { createDropShadow } from '../../environment/ySortUtils'
 import { GAME_BALANCE } from '../../../config/gameConfig'
+import type { NPCWorldSnapshot } from '../../world/constants'
 
 export class NPCManager {
   private scene: Phaser.Scene
@@ -220,5 +221,19 @@ export class NPCManager {
 
   public getNPCCount(): number {
     return this.agents.size
+  }
+
+  public getWorldSnapshots(): NPCWorldSnapshot[] {
+    const now = Date.now()
+
+    return Array.from(this.agents.values()).map((agent) => ({
+      instanceId: agent.data.instanceId,
+      area: 'shop',
+      x: Number.isFinite(agent.sprite.x) ? agent.sprite.x : 0,
+      y: Number.isFinite(agent.sprite.y) ? agent.sprite.y : 0,
+      state: agent.fsm.current || agent.data.state || 'UNKNOWN',
+      intent: agent.data.intent || 'BUY',
+      lastUpdatedAt: now
+    }))
   }
 }

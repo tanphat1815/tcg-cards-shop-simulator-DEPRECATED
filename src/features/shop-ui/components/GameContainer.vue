@@ -7,6 +7,7 @@
 import { onMounted, onUnmounted, ref, toRaw } from 'vue'
 import Phaser from 'phaser'
 import MainScene from '../../../game/MainScene'
+import TownScene from '../../../game/TownScene'
 
 const gameContainer = ref<HTMLElement | null>(null)
 // Store game instance as a raw ref — NOT reactive
@@ -25,7 +26,7 @@ onMounted(() => {
       default: 'arcade',
       arcade: { gravity: { y: 0, x: 0 }, debug: false }
     },
-    scene: [MainScene]
+    scene: [MainScene, TownScene]
   }
 
   // CRITICAL: Use toRaw on the container element to prevent Vue reactive proxy
@@ -45,7 +46,7 @@ onUnmounted(() => {
 
 /**
  * Exposes the raw Phaser game instance to parent components.
- * Usage in parent: const scene = getRawGame()?.scene.getScene('MainScene')
+ * Usage in parent: const scene = getRawGame()?.scene.getScene('ShopScene')
  */
 function getRawGame(): Phaser.Game | null {
   return game

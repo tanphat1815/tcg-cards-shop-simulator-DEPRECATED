@@ -30,15 +30,16 @@ import { EnvironmentManager } from '../features/environment/managers/Environment
 import { FurnitureManager } from '../features/furniture/managers/FurnitureManager'
 import { NPCManager } from '../features/customer/managers/NPCManager'
 import { StaffManager } from '../features/staff/managers/StaffManager'
-import { TownManager } from '../features/gym/managers/TownManager'
 import { DeliveryManager } from '../features/environment/managers/DeliveryManager'
-import { useGymStore } from '../features/gym/store/gymStore'
 import { aStarGrid } from '../features/environment/managers/AStarGridManager'
-import gymBuildingImg from '../assets/images/gym_building.svg'
 import { AppConfig } from './config/AppConfig'
 import { eventBus, EVENTS } from '../features/shared/EventBus'
 import { usePlayerPocketStore } from '../features/inventory/store/playerPocketStore'
 import { GAME_BALANCE } from '../config/gameConfig'
+import { useWorldStore } from '../features/world/store/worldStore'
+import { SHOP_SCENE_KEY, TOWN_SCENE_KEY } from '../features/world/constants'
+import { registerCharacterAnimations } from './utils/characterAnimations'
+import { useGymStore } from '../features/gym/store/gymStore'
 
 export default class MainScene extends Phaser.Scene {
   // ── Entities ─────────────────────────────────────────────────────────────────
@@ -52,7 +53,6 @@ export default class MainScene extends Phaser.Scene {
   public npcManager!: NPCManager
   public staffManager!: StaffManager
   public deliveryManager!: DeliveryManager
-  public townManager!: TownManager
 
   // ── Build mode internals ──────────────────────────────────────────────────────
   private keyE!: Phaser.Input.Keyboard.Key
@@ -83,6 +83,7 @@ export default class MainScene extends Phaser.Scene {
   private shopToTownGate!: Phaser.GameObjects.Text
   private gatePathway!: Phaser.GameObjects.Graphics
   private isTeleporting: boolean = false
+  private lastWorldSyncTime: number = 0
   private cursors!: {
     up: Phaser.Input.Keyboard.Key
     down: Phaser.Input.Keyboard.Key
@@ -91,7 +92,7 @@ export default class MainScene extends Phaser.Scene {
     p: Phaser.Input.Keyboard.Key
   }
 
-  constructor() { super({ key: 'MainScene' }) }
+  constructor() { super({ key: SHOP_SCENE_KEY }) }
 
   // ─────────────────────────────────────────────────────────────────────────────
   preload() {
@@ -112,14 +113,13 @@ export default class MainScene extends Phaser.Scene {
     this.load.image(TEX.WALL_TOP,       wallTopImg)
     this.load.image(TEX.WALL_SIDE,      wallSideImg)
     this.load.image(TEX.SIDEWALK_TILE,  sidewalkTileImg)
-    this.load.image('gym_building',     gymBuildingImg)
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   create() {
     const gameStore = useGameStore()
 
-    this.registerCharacterAnimations()
+    registerCharacterAnimations(this)
 
     // Graphics layers
     this.previewGraphics   = this.add.graphics().setDepth(DEPTH.PREVIEW)
@@ -139,11 +139,6 @@ export default class MainScene extends Phaser.Scene {
     const shopBounds = this.environmentManager.getShopBounds()
     aStarGrid.initialize(shopBounds.x, shopBounds.y, shopBounds.w, shopBounds.h)
 
-    // Gym
-    const gymStore = useGymStore()
-    gymStore.initializeGymLeaders()
-    this.townManager = new TownManager(this)
-
     // World / camera bounds
     this.physics.world.setBounds(0, 0, 5500, 3000)
     this.cameras.main.setBounds(0, 0, 5500, 3000)
@@ -154,11 +149,10 @@ export default class MainScene extends Phaser.Scene {
     // Environment
     this.environmentManager.initializeEnvironment()
     this.furnitureManager.initializeFurniture()
-    this.townManager.initializeTown()
 
     // ── PLAYER SPAWN ──────────────────────────────────────────────────────────
-    const doorLoc = this.environmentManager.getDoorLocation()
-    this.player = this.physics.add.sprite(doorLoc.x, doorLoc.y - 50, TEX.PLAYER, 0)
+    const spawn = this.resolveInitialPlayerSpawn()
+    this.player = this.physics.add.sprite(spawn.x, spawn.y, TEX.PLAYER, 0)
     this.player.setOrigin(0.5, 1)
     applyFootCollider(this.player, 0.3)
     this.player.refreshBody()
@@ -194,17 +188,6 @@ export default class MainScene extends Phaser.Scene {
     // NPC spawn loop
     this.npcManager.initializeNPCs()
 
-    // Game clock (1 second real = 1 minute game)
-    this.time.addEvent({
-      delay: GAME_BALANCE.TIMING.TICK_MS,
-      loop: true,
-      callback: () => {
-        if (gameStore.shopState === 'OPEN' && !gameStore.isBuildMode && !gameStore.isEditMode) {
-          gameStore.tickTime(1)
-        }
-      }
-    })
-
     // Camera drag
     this.setupCameraDrag()
     this.environmentManager.refreshEnvironment()
@@ -217,8 +200,12 @@ export default class MainScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(DEPTH.FLOOR + 1)
     this.refreshGates()
 
+    this.events.on(Phaser.Scenes.Events.WAKE, this.handleWake, this)
+    this.events.on(Phaser.Scenes.Events.SLEEP, this.handleSleep, this)
+
     // Cleanup on shutdown
     this.events.once('shutdown', () => {
+      this.syncWorldSnapshots()
       this.storeUnsubscribers.forEach(u => u())
       this.storeUnsubscribers = []
       this.npcManager.destroy()
@@ -226,8 +213,15 @@ export default class MainScene extends Phaser.Scene {
       this.furnitureManager.destroy()
       this.environmentManager.destroy()
       this.deliveryManager.destroy()
-      this.townManager.destroy()
+      this.events.off(Phaser.Scenes.Events.WAKE, this.handleWake, this)
+      this.events.off(Phaser.Scenes.Events.SLEEP, this.handleSleep, this)
     })
+
+    const worldStore = useWorldStore()
+    worldStore.setCurrentScene(SHOP_SCENE_KEY, 'shop')
+    useGymStore().setPlayerInTown(false)
+    this.playerFSM.resetToIdle(spawn.facing)
+    this.syncWorldSnapshots()
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -299,58 +293,18 @@ export default class MainScene extends Phaser.Scene {
     // Diagnostic key
     if (Phaser.Input.Keyboard.JustDown(this.cursors.p)) this.runDiagnostics()
 
-    // Area transition
-    this.handleAreaTransition()
-
-    // Town manager (gym proximity)
-    this.townManager?.update(this.player.x, this.player.y)
-
     // Gate hints
     this.updateGateHints()
+
+    if (time > this.lastWorldSyncTime + 250) {
+      this.syncWorldSnapshots()
+      this.lastWorldSyncTime = time
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // ANIMATION REGISTRATION
   // ─────────────────────────────────────────────────────────────────────────────
-
-  private registerCharacterAnimations() {
-    const defs: Array<{ prefix: string, key: string }> = [
-      { prefix: 'player', key: TEX.PLAYER }
-    ]
-
-    // Register animations for all NPC skins
-    AppConfig.ASSETS.NPC_POOLS.forEach(pool => {
-      defs.push({ prefix: pool.key, key: pool.key })
-    })
-
-    // Register animations for all Staff skins
-    AppConfig.ASSETS.STAFF_POOLS.forEach(pool => {
-      defs.push({ prefix: pool.key, key: pool.key })
-    })
-
-    // Legacy fallback for generic 'npc' and 'staff' keys
-    defs.push({ prefix: 'npc', key: TEX.NPC })
-    defs.push({ prefix: 'staff', key: TEX.STAFF })
-
-    const dirs = [
-      { dir: 'down',  start: 0  },
-      { dir: 'left',  start: 4  },
-      { dir: 'right', start: 8  },
-      { dir: 'up',    start: 12 }
-    ]
-    for (const { prefix, key } of defs) {
-      for (const { dir, start } of dirs) {
-        const animKey = `${prefix}-${dir}`
-        if (this.anims.exists(animKey)) continue
-        this.anims.create({
-          key: animKey,
-          frames: this.anims.generateFrameNumbers(key, { start, end: start + 3 }),
-          frameRate: 8,
-          repeat: -1
-        })
-      }
-    }
-  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // UI SETUP
@@ -508,6 +462,76 @@ export default class MainScene extends Phaser.Scene {
     this.storeUnsubscribers.push(unsubStats, unsubStaff, unsubCustomer, unsubGame, unsubFurniture)
   }
 
+  private resolveInitialPlayerSpawn() {
+    const worldStore = useWorldStore()
+    const doorLocation = this.environmentManager.getDoorLocation()
+    const fallback = {
+      x: doorLocation.x,
+      y: doorLocation.y - 50,
+      facing: 'down' as const
+    }
+
+    try {
+      const snapshot = worldStore.getPlayerSnapshot(SHOP_SCENE_KEY)
+      return {
+        x: Number.isFinite(snapshot.x) && snapshot.x !== 0 ? snapshot.x : fallback.x,
+        y: Number.isFinite(snapshot.y) && snapshot.y !== 0 ? snapshot.y : fallback.y,
+        facing: snapshot.facing ?? fallback.facing
+      }
+    } catch (error) {
+      console.error('[MainScene] Failed to resolve player spawn:', error)
+      return fallback
+    }
+  }
+
+  private handleWake(_sys: Phaser.Scenes.Systems, data: { spawnX?: number; spawnY?: number; facing?: 'down' | 'up' | 'left' | 'right' }) {
+    try {
+      const worldStore = useWorldStore()
+      const fallback = this.resolveInitialPlayerSpawn()
+      const spawnX = Number.isFinite(data?.spawnX) ? Number(data.spawnX) : fallback.x
+      const spawnY = Number.isFinite(data?.spawnY) ? Number(data.spawnY) : fallback.y
+      const facing = data?.facing ?? fallback.facing
+
+      this.player.setPosition(spawnX, spawnY)
+      this.player.setVelocity(0)
+      this.playerFSM.resetToIdle(facing)
+      updateDropShadow(this.playerShadow, this.player, { radiusX: 14, radiusY: 6, alpha: 0.35 })
+      this.cameras.main.startFollow(this.player, true, 0.05, 0.05)
+      this.cameras.main.fadeIn(250, 0, 0, 0)
+
+      this.isTeleporting = false
+      worldStore.setCurrentScene(SHOP_SCENE_KEY, 'shop')
+      worldStore.finishTransition()
+      useGymStore().setPlayerInTown(false)
+      this.syncWorldSnapshots()
+    } catch (error) {
+      console.error('[MainScene] Wake failed:', error)
+    }
+  }
+
+  private handleSleep() {
+    this.syncWorldSnapshots()
+  }
+
+  private syncWorldSnapshots() {
+    try {
+      const worldStore = useWorldStore()
+      const projectedAwayStaffIds = worldStore.assignedTownStaffSourceIds ?? []
+
+      worldStore.syncPlayerSnapshot(SHOP_SCENE_KEY, {
+        x: this.player?.x ?? 0,
+        y: this.player?.y ?? 0,
+        facing: this.playerFSM?.currentFacing ?? 'down'
+      })
+
+      worldStore.syncNPCSnapshots('shop', this.npcManager?.getWorldSnapshots?.() ?? [])
+      worldStore.syncStaffSnapshots('shop', this.staffManager?.getWorldSnapshots?.() ?? [])
+      this.staffManager?.setProjectedAwayStaffIds?.(projectedAwayStaffIds)
+    } catch (error) {
+      console.error('[MainScene] Failed to sync world snapshots:', error)
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // TELEPORT (fade transition)
   // ─────────────────────────────────────────────────────────────────────────────
@@ -515,20 +539,41 @@ export default class MainScene extends Phaser.Scene {
   private performTeleport(targetX: number, targetY: number, toTown: boolean) {
     if (this.isTeleporting) return
     this.isTeleporting = true
-    const gymStore = useGymStore()
 
-    this.cameras.main.fadeOut(300, 0, 0, 0)
-    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
-      this.player.setPosition(targetX, targetY)
-      // Sync shadow immediately to avoid 1-frame gap
-      updateDropShadow(this.playerShadow, this.player, { radiusX: 14, radiusY: 6, alpha: 0.35 })
-
-      gymStore.setPlayerInTown(toTown)
-      this.player.setVelocity(0)
-      this.playerFSM.resetToIdle('down')
-
-      this.cameras.main.fadeIn(300, 0, 0, 0)
+    if (!toTown) {
       this.isTeleporting = false
+      return
+    }
+
+    const worldStore = useWorldStore()
+    const targetSpawnX = Number.isFinite(targetX) ? targetX : 3150
+    const targetSpawnY = Number.isFinite(targetY) ? targetY : 500
+
+    this.syncWorldSnapshots()
+    worldStore.syncPlayerSnapshot(TOWN_SCENE_KEY, { x: targetSpawnX, y: targetSpawnY, facing: 'down' })
+    worldStore.beginTransition(SHOP_SCENE_KEY, TOWN_SCENE_KEY, 'town')
+
+    this.cameras.main.fadeOut(250, 0, 0, 0)
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      try {
+        const targetScene = this.scene.get(TOWN_SCENE_KEY)
+        const payload = { spawnX: targetSpawnX, spawnY: targetSpawnY, facing: 'down' as const }
+
+        if (targetScene && targetScene.scene.isSleeping()) {
+          this.scene.wake(TOWN_SCENE_KEY, payload)
+        } else if (targetScene && targetScene.scene.isPaused()) {
+          this.scene.resume(TOWN_SCENE_KEY)
+        } else {
+          this.scene.launch(TOWN_SCENE_KEY, payload)
+        }
+
+        this.scene.sleep(SHOP_SCENE_KEY)
+      } catch (error) {
+        console.error('[MainScene] Failed to switch to town scene:', error)
+        worldStore.finishTransition()
+        this.isTeleporting = false
+        this.cameras.main.fadeIn(250, 0, 0, 0)
+      }
     })
   }
 
@@ -537,13 +582,13 @@ export default class MainScene extends Phaser.Scene {
   // ─────────────────────────────────────────────────────────────────────────────
 
   private handlePlayerInteraction(store: any) {
-    const doorPos  = this.environmentManager.getDoorLocation()
     const wz       = this.environmentManager.warpGateZone
     const distTown = Phaser.Math.Distance.Between(this.player.x, this.player.y, wz.x, wz.y)
-    const distShop = Phaser.Math.Distance.Between(this.player.x, this.player.y, TownManager.TOWN_START_X + 50, 500)
 
-    if (distTown < 80) { this.performTeleport(TownManager.TOWN_START_X + 150, 500, true);  return }
-    if (distShop < 80) { this.performTeleport(doorPos.x, doorPos.y + 100, false);          return }
+    if (distTown < GAME_BALANCE.MAP.TRANSITION_DIST_THRESHOLD) {
+      this.performTeleport(3150, 500, true)
+      return
+    }
 
     // Delivery
     if (this.deliveryManager) {
@@ -874,12 +919,6 @@ export default class MainScene extends Phaser.Scene {
     }
   }
 
-  private handleAreaTransition() {
-    const gymStore = useGymStore()
-    const isInTownX = this.player.x > TownManager.TOWN_START_X - 100
-    if (isInTownX !== gymStore.isPlayerInTown) gymStore.setPlayerInTown(isInTownX)
-  }
-
   public refreshGates() {
     if (!this.environmentManager || !this.shopToTownGate) return
     const wz     = this.environmentManager.warpGateZone
@@ -944,11 +983,9 @@ export default class MainScene extends Phaser.Scene {
     const wz          = this.environmentManager.warpGateZone
     const RADIUS      = GAME_BALANCE.MAP.TRANSITION_DIST_THRESHOLD
     const distToTown  = Phaser.Math.Distance.Between(this.player.x, this.player.y, wz.x, wz.y)
-    const distToShop  = Phaser.Math.Distance.Between(this.player.x, this.player.y, TownManager.TOWN_START_X + 50, 500)
 
-    if (distToTown < RADIUS)     this.gateHintText.setText(AppConfig.UI.MESSAGES.GO_TO_GYM).setVisible(true)
-    else if (distToShop < RADIUS) this.gateHintText.setText(AppConfig.UI.MESSAGES.RETURN_TO_SHOP).setVisible(true)
-    else                          this.gateHintText.setVisible(false)
+    if (distToTown < RADIUS) this.gateHintText.setText(AppConfig.UI.MESSAGES.GO_TO_GYM).setVisible(true)
+    else this.gateHintText.setVisible(false)
   }
 
   private runDiagnostics() {

@@ -16,6 +16,7 @@ import type { IState } from '../../shared/StateMachine'
 import { NPCLocomotion } from '../../customer/managers/NPCLocomotion'
 import { useInventoryStore } from '../../inventory/store/inventoryStore'
 import { GAME_BALANCE } from '../../../config/gameConfig'
+import type { StaffWorldSnapshot } from '../../world/constants'
 
 /** Interface cho AI Agent của nhân viên */
 export interface IStaffAgent {
@@ -468,6 +469,7 @@ export class StaffManager {
   private environmentManager: EnvironmentManager
   public deliveryManager: DeliveryManager
   private agents: Map<string, StaffAgent> = new Map()
+  private projectedAwayStaffIds: Set<string> = new Set()
 
   constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager, deliveryManager: DeliveryManager) {
     this.scene = scene
@@ -558,16 +560,70 @@ export class StaffManager {
         this.agents.set(w.instanceId, agent)
       }
       agent.sync(w.duty, w.targetDeskId)
+      this.applyProjectedVisibilityForAgent(agent)
     })
   }
 
   public update(time: number) {
     const delta = this.scene.game.loop.delta
-    this.agents.forEach(agent => agent.update(time, delta))
+    this.agents.forEach(agent => {
+      if (!agent.sprite.visible) return
+      agent.update(time, delta)
+    })
   }
 
   public destroy() {
     this.agents.forEach(a => a.destroy())
     this.agents.clear()
+    this.projectedAwayStaffIds.clear()
+  }
+
+  public getWorldSnapshots(): StaffWorldSnapshot[] {
+    const now = Date.now()
+
+    return Array.from(this.agents.values()).map((agent) => ({
+      instanceId: agent.instanceId,
+      area: 'shop',
+      x: Number.isFinite(agent.sprite.x) ? agent.sprite.x : 0,
+      y: Number.isFinite(agent.sprite.y) ? agent.sprite.y : 0,
+      duty: agent.duty,
+      state: agent.fsm.current || 'IDLE',
+      lastUpdatedAt: now
+    }))
+  }
+
+  public setProjectedAwayStaffIds(instanceIds: string[]) {
+    try {
+      const next = new Set((instanceIds || []).filter((id) => typeof id === 'string' && id.length > 0))
+      this.projectedAwayStaffIds = next
+      this.agents.forEach((agent) => this.applyProjectedVisibilityForAgent(agent))
+    } catch (error) {
+      console.error('[StaffManager] setProjectedAwayStaffIds failed:', error)
+    }
+  }
+
+  private applyProjectedVisibilityForAgent(agent: StaffAgent) {
+    try {
+      const shouldProjectAway = agent.duty === 'NONE' && this.projectedAwayStaffIds.has(agent.instanceId)
+      const shouldBeVisible = !shouldProjectAway
+      const body = agent.sprite.body as Phaser.Physics.Arcade.Body | undefined
+
+      agent.sprite.setVisible(shouldBeVisible)
+      agent.statusText.setVisible(shouldBeVisible)
+      if (agent.shadow) {
+        agent.shadow.setVisible(shouldBeVisible)
+      }
+
+      if (body) {
+        body.enable = shouldBeVisible
+      }
+
+      if (!shouldBeVisible) {
+        agent.locomotion.stop()
+        agent.sprite.setVelocity(0, 0)
+      }
+    } catch (error) {
+      console.error('[StaffManager] applyProjectedVisibilityForAgent failed:', error)
+    }
   }
 }
