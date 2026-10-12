@@ -14,7 +14,7 @@ import { TEX } from '../assetKeys'
 
 interface LiveBox {
   id: string
-  sprite: Phaser.Physics.Arcade.Sprite
+  sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
   label: Phaser.GameObjects.Text
   qtyLabel: Phaser.GameObjects.Text
   itemId: string
@@ -28,9 +28,9 @@ interface LiveBox {
 export class DeliveryManager {
   private scene: Phaser.Scene
   private boxes: LiveBox[] = []
-  private boxGroup!: Phaser.Physics.Arcade.Group
+  private boxGroup!: Phaser.GameObjects.Group | Phaser.Physics.Arcade.Group
   /** Nhóm vật lý tĩnh cho bãi nhận hàng ngoài Shop */
-  private deliveryZoneGroup!: Phaser.Physics.Arcade.StaticGroup
+  private deliveryZoneGroup!: Phaser.GameObjects.Group | Phaser.Physics.Arcade.StaticGroup
   private environmentManager: EnvironmentManager
   private lastSpawnTime = 0
   private spawnInterval = 800
@@ -51,21 +51,30 @@ export class DeliveryManager {
     this.keyB = scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.B)
     
     // 1. Khởi tạo Box Group (Vật thể động)
-    this.boxGroup = this.scene.physics.add.group({
-      bounceX: 0.3,
-      bounceY: 0.3,
-      collideWorldBounds: true
-    })
-
-    // 2. Khởi tạo Delivery Zone Group
-    this.deliveryZoneGroup = this.scene.physics.add.staticGroup()
+    try {
+      if (this.scene.physics && (this.scene.physics as any).add) {
+        this.boxGroup = this.scene.physics.add.group({
+          bounceX: 0.3,
+          bounceY: 0.3,
+          collideWorldBounds: true
+        })
+        this.deliveryZoneGroup = this.scene.physics.add.staticGroup()
+      } else {
+        this.boxGroup = this.scene.add.group()
+        this.deliveryZoneGroup = this.scene.add.group()
+      }
+    } catch (_err) {
+      this.boxGroup = this.scene.add.group()
+      this.deliveryZoneGroup = this.scene.add.group()
+    }
     
     // Ban đầu có thể chưa có zone, chúng ta sẽ vẽ lại trong refreshDeliveryZone
     this.refreshDeliveryZone()
 
-    // 3. Thiết lập va chạm
-    // KHÔNG chặn thùng hàng bằng collider của bãi nhận hàng nữa để thùng có thể rơi vào "lòng" hình vuông
-    this.scene.physics.add.collider(this.boxGroup, this.environmentManager.wallsGroup)
+    // 3. Thiết lập va chạm (Arcade only)
+    if (this.scene.physics && (this.scene.physics as any).add && this.environmentManager.wallsGroup) {
+      this.scene.physics.add.collider(this.boxGroup, this.environmentManager.wallsGroup)
+    }
 
     // UI Hint Text
     this.hintText = this.scene.add.text(0, 0, '', {
@@ -136,17 +145,22 @@ export class DeliveryManager {
         if (targetY !== undefined) {
           if (box.sprite.y < targetY) {
             // Đang rơi
-            const body = box.sprite.body as Phaser.Physics.Arcade.Body
-            if (body && body.velocity.y === 0) body.setVelocityY(300)
+            const body = (box.sprite as any).body as Phaser.Physics.Arcade.Body
+            if (body && body.setVelocityY) {
+              if (body.velocity.y === 0) body.setVelocityY(300)
+            } else {
+              // Manual fall for Matter/No-physics
+              box.sprite.y += 5
+            }
             box.sprite.setData('isLanded', false)
           } else {
             // Đã chạm đất
             box.sprite.y = targetY
-            const body = box.sprite.body as Phaser.Physics.Arcade.Body
-            if (body) {
+            const body = (box.sprite as any).body as Phaser.Physics.Arcade.Body
+            if (body && body.setVelocityY) {
                 body.setVelocityY(0)
-                body.setAccelerationY(0)
-                body.setGravityY(0)
+                if (body.setAccelerationY) body.setAccelerationY(0)
+                if (body.setGravityY) body.setGravityY(0)
             }
             box.sprite.setData('isLanded', true)
           }
@@ -202,19 +216,26 @@ export class DeliveryManager {
 
     // ==================== SPAWN BOX (2.5D) ====================
     const boxTexture = item.type === 'furniture' ? AppConfig.ASSETS.BOXES.FURNITURE : AppConfig.ASSETS.BOXES.ITEM
-    const boxSprite = this.scene.physics.add.sprite(targetX, spawnY, boxTexture)
+    
+    let boxSprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
+    if (!AppConfig.ISOMETRIC.ENABLED && this.scene.physics && (this.scene.physics as any).add) {
+      boxSprite = this.scene.physics.add.sprite(targetX, spawnY, boxTexture)
+      const body = boxSprite.body as Phaser.Physics.Arcade.Body
+      if (body) {
+        body.setVelocityY(300)
+        body.setBounce(0.3)
+        body.setCollideWorldBounds(true)
+      }
+      applyFootCollider(boxSprite as Phaser.Physics.Arcade.Sprite, 1.0)
+    } else {
+      boxSprite = this.scene.add.sprite(targetX, spawnY, boxTexture)
+    }
+
     boxSprite.setOrigin(0.5, 1)               
-    applyFootCollider(boxSprite, 1.0)         
-    boxSprite.setCollideWorldBounds(true)
-    boxSprite.setBounce(0.3)
     boxSprite.setData('targetY', targetY) // Đánh dấu tọa độ tiếp đất mong muốn
     
     applyDynamicYSort(boxSprite)
     this.boxGroup.add(boxSprite)
-    
-    const body = boxSprite.body as Phaser.Physics.Arcade.Body
-    body.setVelocityY(300) 
-
     const label = this.scene.add.text(targetX, spawnY - 40, item.name.substring(0, 20), {
       fontSize: '9px',
       color: '#ffffff',
@@ -443,8 +464,9 @@ export class DeliveryManager {
     const deliveryStore = useDeliveryStore()
     nearest.isBeingCarried = true
     nearest.carriedBy = 'player'
-    const body = nearest.sprite.body as Phaser.Physics.Arcade.Body
-    body.setEnable(false)
+    const body = (nearest.sprite as any).body
+    if (body && body.setEnable) body.setEnable(false)
+    else if (body) body.enable = false
 
     deliveryStore.pickUpBox({
       itemId: nearest.itemId,
@@ -479,8 +501,9 @@ export class DeliveryManager {
     
     box.isBeingCarried = false
     box.carriedBy = null
-    const body = box.sprite.body as Phaser.Physics.Arcade.Body
-    body.setEnable(true)
+    const body = (box.sprite as any).body
+    if (body && body.setEnable) body.setEnable(true)
+    else if (body) body.enable = true
     deliveryStore.dropBox()
   }
 
@@ -519,18 +542,23 @@ export class DeliveryManager {
    */
   public spawnStaffBoxAt(item: { itemId: string; name: string; type: string; quantity: number }, x: number, y: number): string {
     const boxId = `box_storage_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
-    
-    // Tạo sprite
     const boxTexture = item.type === 'furniture' ? AppConfig.ASSETS.BOXES.FURNITURE : AppConfig.ASSETS.BOXES.ITEM
-    const boxSprite = this.scene.physics.add.sprite(x, y, boxTexture)
-    boxSprite.setOrigin(0.5, 1)
-    applyFootCollider(boxSprite, 1.0)
-    boxSprite.setCollideWorldBounds(true)
     
+    let boxSprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
+    if (!AppConfig.ISOMETRIC.ENABLED && this.scene.physics && (this.scene.physics as any).add) {
+      boxSprite = this.scene.physics.add.sprite(x, y, boxTexture)
+      const body = boxSprite.body as Phaser.Physics.Arcade.Body
+      if (body) {
+        body.setEnable(false)
+        body.setCollideWorldBounds(true)
+      }
+      applyFootCollider(boxSprite as Phaser.Physics.Arcade.Sprite, 1.0)
+    } else {
+      boxSprite = this.scene.add.sprite(x, y, boxTexture)
+    }
+    
+    boxSprite.setOrigin(0.5, 1)
     this.boxGroup.add(boxSprite)
-    const body = boxSprite.body as Phaser.Physics.Arcade.Body
-    body.setEnable(false) // Tắt vật lý ngay lập tức vì sẽ được vác đi
-
     const label = this.scene.add.text(x, y - 40, item.name.substring(0, 20), {
       fontSize: '9px', color: '#ffffff', backgroundColor: 'rgba(0,0,0,0.7)', padding: { x: 3, y: 2 }
     }).setOrigin(0.5).setDepth(DEPTH.UI_TEXT)
@@ -566,11 +594,14 @@ export class DeliveryManager {
     box.carriedBy = null
     box.sprite.setPosition(x, y)
     
-    const body = box.sprite.body as Phaser.Physics.Arcade.Body
-    body.setEnable(true)
-    body.setGravityY(0)    // 🆕 Tắt trọng lực để không rơi xuyên map
-    body.setVelocity(0, 0) // 🆕 Dừng mọi chuyển động thừa
-  }
+    const body = (box.sprite as any).body
+    if (body) {
+      if (body.setEnable) body.setEnable(true)
+      else body.enable = true
+      
+      if (body.setGravityY) body.setGravityY(0)
+      if (body.setVelocity) body.setVelocity(0, 0)
+    }  }
 
   /**
    * Cập nhật vị trí thùng hàng do Nhân viên đang cầm (gọi từ AI loop).
@@ -667,16 +698,22 @@ export class DeliveryManager {
     // Rơi từ trên cao
     const spawnY = targetY - 400
 
-    const sprite = this.scene.physics.add.sprite(targetX, spawnY, TEX.PACKAGE_BOX)
-      .setOrigin(0.5, 1)
-      .setDepth(DEPTH.LAYER3_OBJECTS + targetY)
-      .setTint(0x60a5fa) // Màu xanh nhạt để phân biệt với thùng hàng thường
+    let sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
+    if (!AppConfig.ISOMETRIC.ENABLED && this.scene.physics && (this.scene.physics as any).add) {
+      sprite = this.scene.physics.add.sprite(targetX, spawnY, TEX.PACKAGE_BOX)
+      const body = sprite.body as Phaser.Physics.Arcade.Body
+      if (body) {
+        body.setVelocityY(400)
+        body.setCollideWorldBounds(true)
+        body.setBounce(0.4)
+      }
+    } else {
+      sprite = this.scene.add.sprite(targetX, spawnY, TEX.PACKAGE_BOX)
+    }
 
-    sprite.setCollideWorldBounds(true)
-    sprite.setBounce(0.4)
-    
-    const body = sprite.body as Phaser.Physics.Arcade.Body
-    body.setVelocityY(400)
+    sprite.setOrigin(0.5, 1)
+          .setDepth(DEPTH.LAYER3_OBJECTS + targetY)
+          .setTint(0x60a5fa) // Màu xanh nhạt để phân biệt với thùng hàng thường
     
     // Icon ❓ 
     const label = this.scene.add.text(targetX, spawnY - 50, '❓', { 
@@ -697,9 +734,12 @@ export class DeliveryManager {
       // Logic chạm đất (giống spawnBox nhưng đơn giản hơn)
       if (sprite.y >= targetY) {
         sprite.y = targetY
-        body.setVelocityY(0)
-        body.setGravityY(0)
-        body.setImmovable(true)
+        const body = (sprite as any).body
+        if (body) {
+          if (body.setVelocityY) body.setVelocityY(0)
+          if (body.setGravityY) body.setGravityY(0)
+          if (body.setImmovable) body.setImmovable(true)
+        }
       }
       
       label.setPosition(sprite.x, sprite.y - 50)

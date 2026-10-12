@@ -9,7 +9,7 @@ import {
   updateDropShadow
 } from '../features/environment/ySortUtils'
 import { DEPTH } from '../features/environment/config'
-import { PlayerFSM, type PlayerFacing } from './PlayerFSM'
+import { PlayerFSM, type Facing } from './PlayerFSM'
 import { registerCharacterAnimations } from './utils/characterAnimations'
 import { useGameStore } from '../features/shop-ui/store/gameStore'
 import { useStatsStore } from '../features/stats/store/statsStore'
@@ -24,7 +24,7 @@ import { WorldActorProjectionManager } from '../features/world/managers/WorldAct
 interface TownSceneData {
   spawnX?: number
   spawnY?: number
-  facing?: PlayerFacing
+  facing?: Facing
 }
 
 export default class TownScene extends Phaser.Scene {
@@ -235,10 +235,14 @@ export default class TownScene extends Phaser.Scene {
       this.player.setFrame(this.getIdleFrame(snapshot.facing))
     }
 
-    worldStore.syncPlayerSnapshot(TOWN_SCENE_KEY, snapshot)
+    worldStore.syncPlayerSnapshot(TOWN_SCENE_KEY, {
+      x: snapshot.x,
+      y: snapshot.y,
+      facing: snapshot.facing as 'down' | 'up' | 'left' | 'right'
+    })
   }
 
-  private getIdleFrame(facing: PlayerFacing) {
+  private getIdleFrame(facing: Facing): number {
     if (facing === 'left') return 4
     if (facing === 'right') return 8
     if (facing === 'up') return 12
@@ -316,11 +320,12 @@ export default class TownScene extends Phaser.Scene {
   private syncPlayerSnapshot() {
     try {
       const worldStore = useWorldStore()
-      worldStore.syncPlayerSnapshot(TOWN_SCENE_KEY, {
-        x: this.player?.x ?? 0,
-        y: this.player?.y ?? 0,
-        facing: this.playerFSM?.currentFacing ?? 'down'
-      })
+      const snapshot = {
+      x: this.player?.x ?? 0,
+      y: this.player?.y ?? 0,
+      facing: (this.playerFSM?.currentFacing ?? 'down') as 'down' | 'up' | 'left' | 'right'
+    }
+    worldStore.syncPlayerSnapshot(TOWN_SCENE_KEY, snapshot)
     } catch (error) {
       console.error('[TownScene] Failed to sync player snapshot:', error)
     }

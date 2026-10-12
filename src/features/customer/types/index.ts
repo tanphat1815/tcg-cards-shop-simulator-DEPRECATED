@@ -17,7 +17,7 @@ export type NPCState =
 export type CustomerIntent = 'BUY' | 'PLAY' | 'SELL'
 
 export interface CustomerData {
-  sprite: Phaser.Physics.Arcade.Sprite;
+  sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite;
   state: NPCState;
   timer: number;
   targetX: number;

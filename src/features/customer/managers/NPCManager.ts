@@ -12,6 +12,10 @@ import { useApiStore } from '../../inventory/store/apiStore'
 import { eventBus } from '../../shared/EventBus'
 import { CustomerAgent } from './CustomerFSM'
 import type { CustomerIntent, CustomerData } from '../types'
+import {
+  applyMatterFootCollider,
+  COLLISION_CATEGORIES
+} from '../../environment/physics/PhysicsUtils'
 import { aStarGrid, type WorldPoint } from '../../environment/managers/AStarGridManager'
 import { createDropShadow } from '../../environment/ySortUtils'
 import { GAME_BALANCE } from '../../../config/gameConfig'
@@ -25,7 +29,7 @@ export class NPCManager {
   private agents: Map<string, CustomerAgent> = new Map()
   private projectedAwayNPCIds: Set<string> = new Set()
   private unsubscribers: (() => void)[] = []
-  private npcGroup: Phaser.Physics.Arcade.Group
+  private npcGroup: Phaser.GameObjects.Group | Phaser.Physics.Arcade.Group
   private _queueSlots: WorldPoint[] = []
   private tradeInLeaveHandler: ((ev: Event) => void) | null = null
 
@@ -36,7 +40,18 @@ export class NPCManager {
   constructor(scene: Phaser.Scene, environmentManager: EnvironmentManager) {
     this.scene = scene
     this.environmentManager = environmentManager
-    this.npcGroup = this.scene.physics.add.group()
+    
+    // Safety check: if physics plugin is not available (e.g. Matter is default),
+    // use a standard group instead of an Arcade group.
+    try {
+      if (this.scene.physics && (this.scene.physics as any).add) {
+        this.npcGroup = this.scene.physics.add.group()
+      } else {
+        this.npcGroup = this.scene.add.group()
+      }
+    } catch (_err) {
+      this.npcGroup = this.scene.add.group()
+    }
 
     // Đăng ký sự kiện từ EventBus
     this.unsubscribers.push(
@@ -86,23 +101,60 @@ export class NPCManager {
 
     const doorLocation = this.environmentManager.getDoorLocation()
     const pool = AppConfig.ASSETS.NPC_POOLS
-    const selectedTexture = pool[Math.floor(Math.random() * pool.length)].key
+    let selectedTexture = pool[Math.floor(Math.random() * pool.length)].key
+    if (AppConfig.ISOMETRIC.ENABLED) {
+        // use TEX from imported assetKeys (wait, I need to make sure TEX is imported first)
+        selectedTexture = 'npc_iso' // TEX.NPC_ISO evaluates to 'npc_iso'
+    }
 
-    // --- OBJECT POOLING LOGIC ---
-    let npcSprite = this.npcGroup.get(doorLocation.x, doorLocation.y + 50, selectedTexture) as Phaser.Physics.Arcade.Sprite
-    
-    if (!npcSprite) {
-      // Fallback if group.get fails to create (shouldn't happen with default group settings)
-      npcSprite = this.scene.physics.add.sprite(doorLocation.x, doorLocation.y + 50, selectedTexture)
+    // --- OBJECT POOLING / SPAWNING LOGIC ---
+    let npcSprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
+
+    // Check if we can use the pool
+    const pooled = this.npcGroup.get(doorLocation.x, doorLocation.y + 50, selectedTexture)
+    if (pooled) {
+      npcSprite = pooled
+    } else {
+      // Manual creation if pooling fails or not using Arcade group
+      if (!AppConfig.ISOMETRIC.ENABLED && this.scene.physics && (this.scene.physics as any).add) {
+        npcSprite = this.scene.physics.add.sprite(doorLocation.x, doorLocation.y + 50, selectedTexture)
+      } else {
+        npcSprite = this.scene.add.sprite(doorLocation.x, doorLocation.y + 50, selectedTexture)
+      }
     }
 
     npcSprite.setActive(true).setVisible(true)
-    npcSprite.setFrame(0)
-    if (npcSprite.body) npcSprite.body.enable = true
+    if (npcSprite.anims) npcSprite.setFrame(0)
+    
+    // Enable physics body if it exists (Arcade)
+    if ((npcSprite as any).body) {
+      (npcSprite as any).body.enable = true
+    }
+    
     npcSprite.setOrigin(0.5, 1)
-    applyFootCollider(npcSprite, 0.3)
-    npcSprite.refreshBody()
-    npcSprite.setCollideWorldBounds(true)
+
+    // ── Isometric: Matter.js collision; Oblique: Arcade foot collider ──
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      // Thêm Matter hitbox cho NPC để Player không đi xuyên qua
+      applyMatterFootCollider(
+        npcSprite as any,
+        'npc_iso', // Sử dụng shape từ JSON
+        {
+          label: 'npc_hitbox',
+          category: COLLISION_CATEGORIES.NPC,
+          mask: COLLISION_CATEGORIES.PLAYER | COLLISION_CATEGORIES.WALL,
+          isStatic: false
+        }
+      )
+      // Vì di chuyển bằng Tween nên cần set sensor: false và mass lớn để không bị đẩy đi dễ dàng
+      if ((npcSprite as any).body) {
+        (npcSprite as any).setFixedRotation(true)
+      }
+    } else if ((npcSprite as any).body) {
+      applyFootCollider(npcSprite as Phaser.Physics.Arcade.Sprite, 0.3)
+      if ((npcSprite as any).refreshBody) (npcSprite as any).refreshBody()
+      if ((npcSprite as any).setCollideWorldBounds) (npcSprite as any).setCollideWorldBounds(true)
+    }
 
     // Xác định Intent
     const rand = Math.random()
@@ -270,7 +322,9 @@ export class NPCManager {
 
       if (!shouldBeVisible) {
         agent.locomotion.stop()
-        agent.sprite.setVelocity(0, 0)
+        try {
+          if ((agent.sprite as any).setVelocity) (agent.sprite as any).setVelocity(0, 0)
+        } catch (_e) { /* ignore */ }
       }
     } catch (error) {
       console.error('[NPCManager] applyProjectedVisibilityForAgent failed:', error)

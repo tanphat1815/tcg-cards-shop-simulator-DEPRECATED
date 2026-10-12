@@ -15,10 +15,15 @@ import { eventBus } from '../../shared/EventBus'
 import type { CustomerData } from '../types'
 import { updateDropShadow } from '../../environment/ySortUtils'
 import { GAME_BALANCE } from '../../../config/gameConfig'
+import { AppConfig } from '../../../game/config/AppConfig'
+import { 
+  computeIsoDepthFromScreen, 
+  DEPTH_OFFSETS 
+} from '../../environment/utils/IsometricUtils'
 
 /** Interface mở rộng cho Customer Agency */
 export interface ICustomerAgent {
-  sprite: Phaser.Physics.Arcade.Sprite
+  sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
   scene: Phaser.Scene
   locomotion: NPCLocomotion
   fsm: StateMachine<ICustomerAgent>
@@ -38,7 +43,7 @@ export interface ICustomerAgent {
  * Thay thế cho object "newCust" rời rạc ở bản cũ
  */
 export class CustomerAgent implements ICustomerAgent {
-  public sprite: Phaser.Physics.Arcade.Sprite
+  public sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
   public scene: Phaser.Scene
   public locomotion: NPCLocomotion
   public fsm: StateMachine<ICustomerAgent>
@@ -93,7 +98,22 @@ export class CustomerAgent implements ICustomerAgent {
     this.fsm.update(time, delta)
     this.locomotion.update()
     this.statusText.setPosition(this.sprite.x, this.sprite.y - 55)
-    
+
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      const { ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+      
+      const depth = computeIsoDepthFromScreen(
+        this.sprite.x,
+        this.sprite.y,
+        ORIGIN_X,
+        ORIGIN_Y,
+        DEPTH_OFFSETS.PLAYER,
+        AppConfig.ISOMETRIC.DEPTH_BASE
+      )
+      
+      this.sprite.setDepth(depth)
+    }
+
     // Sync Trade Icon nếu có
     if (this.data.tradeIcon) {
        this.data.tradeIcon.setPosition(this.sprite.x, this.sprite.y - 70)
@@ -137,7 +157,7 @@ export class CustomerAgent implements ICustomerAgent {
     
     // OBJECT POOLING: Deactivate sprite instead of destroying it
     this.sprite.setActive(false).setVisible(false)
-    if (this.sprite.body) this.sprite.body.enable = false
+    if (this.sprite.body) (this.sprite.body as any).enable = false
     
     // We destroy shadows for now as they are cheap Graphics, but could be pooled later
     if (this.data.shadow) {

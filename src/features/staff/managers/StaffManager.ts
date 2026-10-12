@@ -4,12 +4,12 @@
 import Phaser from 'phaser'
 import { DEPTH } from '../../environment/config'
 import { applyDynamicYSort, applyFootCollider, createDropShadow, updateDropShadow } from '../../environment/ySortUtils'
+import { AppConfig } from '../../../game/config/AppConfig'
 import { useStaffStore } from '../store/staffStore'
 import { useGameStore } from '../../shop-ui/store/gameStore'
 import { useFurnitureStore } from '../../furniture/store/furnitureStore'
 import type { WorkerDuty } from '../types'
 import { EnvironmentManager } from '../../environment/managers/EnvironmentManager'
-import { AppConfig } from '../../../game/config/AppConfig'
 import { DeliveryManager } from '../../environment/managers/DeliveryManager'
 import { StateMachine } from '../../shared/StateMachine'
 import type { IState } from '../../shared/StateMachine'
@@ -21,7 +21,7 @@ import type { StaffWorldSnapshot } from '../../world/constants'
 /** Interface cho AI Agent của nhân viên */
 export interface IStaffAgent {
   instanceId: string
-  sprite: Phaser.Physics.Arcade.Sprite
+  sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
   scene: Phaser.Scene
   locomotion: NPCLocomotion
   fsm: StateMachine<IStaffAgent>
@@ -47,7 +47,7 @@ export interface IStaffAgent {
 
 export class StaffAgent implements IStaffAgent {
   public instanceId: string
-  public sprite: Phaser.Physics.Arcade.Sprite
+  public sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
   public scene: Phaser.Scene
   public locomotion: NPCLocomotion
   public fsm: StateMachine<IStaffAgent>
@@ -63,7 +63,7 @@ export class StaffAgent implements IStaffAgent {
   private lastPosition = { x: 0, y: 0 }
   private lastStuckCheckTime = 0
 
-  constructor(scene: Phaser.Scene, sprite: Phaser.Physics.Arcade.Sprite, instanceId: string) {
+  constructor(scene: Phaser.Scene, sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite, instanceId: string) {
     this.scene = scene
     this.sprite = sprite
     this.instanceId = instanceId
@@ -117,7 +117,20 @@ export class StaffAgent implements IStaffAgent {
     this.fsm.update(time, delta)
     this.locomotion.update()
     this.statusText.setPosition(this.sprite.x, this.sprite.y - 55)
-    applyDynamicYSort(this.sprite)
+
+    // ── Depth sorting: isometric (3D formula) vs oblique (Y-sort) ──
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+      const { ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+      const sx = this.sprite.x - ORIGIN_X; const sy = this.sprite.y - ORIGIN_Y
+      const col = Math.floor((sx / (TILE_WIDTH/2) + sy / (TILE_HEIGHT/2)) / 2)
+      const row = Math.floor((sy / (TILE_HEIGHT/2) - sx / (TILE_WIDTH/2)) / 2)
+      this.sprite.setDepth(AppConfig.ISOMETRIC.DEPTH_BASE + col + row)
+    } else {
+      // Oblique: Y-sort based on foot position
+      applyDynamicYSort(this.sprite)
+    }
+
     if (this.shadow) updateDropShadow(this.shadow, this.sprite, { radiusX: 11, radiusY: 5 })
 
     // ANTI-STUCK LOGIC
@@ -551,10 +564,20 @@ export class StaffManager {
         if (!spawnLoc) return // Chờ EnvironmentManager sẵn sàng
 
         const pool = AppConfig.ASSETS.STAFF_POOLS
-        const texture = pool[Math.floor(Math.random() * pool.length)].key
-        const sprite = this.scene.physics.add.sprite(spawnLoc.x, spawnLoc.y, texture, 0)
-        sprite.setOrigin(0.5, 1)
-        applyFootCollider(sprite, 0.3)
+        let texture = pool[Math.floor(Math.random() * pool.length)].key
+        if (AppConfig.ISOMETRIC.ENABLED) {
+            texture = 'staff_iso'
+        }
+        
+        let sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
+        if (!AppConfig.ISOMETRIC.ENABLED && this.scene.physics && (this.scene.physics as any).add) {
+          sprite = this.scene.physics.add.sprite(spawnLoc.x, spawnLoc.y, texture, 0)
+          sprite.setOrigin(0.5, 1)
+          applyFootCollider(sprite as Phaser.Physics.Arcade.Sprite, 0.3)
+        } else {
+          sprite = this.scene.add.sprite(spawnLoc.x, spawnLoc.y, texture, 0)
+          sprite.setOrigin(0.5, 1)
+        }
         
         agent = new StaffAgent(this.scene, sprite, w.instanceId)
         this.agents.set(w.instanceId, agent)
@@ -620,7 +643,9 @@ export class StaffManager {
 
       if (!shouldBeVisible) {
         agent.locomotion.stop()
-        agent.sprite.setVelocity(0, 0)
+        try {
+          if ((agent.sprite as any).setVelocity) (agent.sprite as any).setVelocity(0, 0)
+        } catch (_e) { /* ignore */ }
       }
     } catch (error) {
       console.error('[StaffManager] applyProjectedVisibilityForAgent failed:', error)

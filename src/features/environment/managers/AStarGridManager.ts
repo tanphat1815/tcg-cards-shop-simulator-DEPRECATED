@@ -3,6 +3,7 @@
 // Grid cell size = TILE_SIZE pixel (match với map layout)
 
 import Phaser from 'phaser'
+import { AppConfig } from '../../../game/config/AppConfig'
 
 export const GRID_TILE = 16  // px mỗi ô lưới — nhỏ hơn tile visual để đi sát vật thể
 
@@ -45,17 +46,24 @@ export class AStarGridManager {
    * CRITICAL: origin phải khớp chính xác với shopBounds.x/y - margin
    */
   initialize(shopX: number, shopY: number, shopW: number, shopH: number) {
-    // Thêm margin rộng để cover cả vùng bên ngoài (Gồm cả bãi xe phía trên và vỉa hè phía dưới)
-    const hMargin = 1000
-    const vMarginLower = 512 
-    const vMarginUpper = 256  // Tăng lên để cover toàn bộ North Wall và khoảng trống phía trên
+    if (AppConfig.ISOMETRIC.ENABLED) {
+        this.originX = 0
+        this.originY = 0
+        this.cols = AppConfig.ISOMETRIC.MAP.GRID_WIDTH
+        this.rows = AppConfig.ISOMETRIC.MAP.GRID_HEIGHT
+    } else {
+        // Thêm margin rộng để cover cả vùng bên ngoài (Gồm cả bãi xe phía trên và vỉa hè phía dưới)
+        const hMargin = 1000
+        const vMarginLower = 512 
+        const vMarginUpper = 256  // Tăng lên để cover toàn bộ North Wall và khoảng trống phía trên
 
-    this.originX = shopX - hMargin
-    this.originY = shopY - vMarginUpper
-    
-    // Safety check: ensure positive dimensions
-    this.cols = Math.max(1, Math.ceil((shopW + hMargin * 2) / GRID_TILE))
-    this.rows = Math.max(1, Math.ceil((shopH + vMarginUpper + vMarginLower) / GRID_TILE))
+        this.originX = shopX - hMargin
+        this.originY = shopY - vMarginUpper
+        
+        // Safety check: ensure positive dimensions
+        this.cols = Math.max(1, Math.ceil((shopW + hMargin * 2) / GRID_TILE))
+        this.rows = Math.max(1, Math.ceil((shopH + vMarginUpper + vMarginLower) / GRID_TILE))
+    }
 
     // Tạo grid rỗng — tất cả walkable
     this.grid = []
@@ -76,8 +84,21 @@ export class AStarGridManager {
    * Đánh dấu vật cản theo tọa độ world
    */
   markObstacle(wx: number, wy: number, ww: number, wh: number) {
-    // Safety check: prevent NaN or undefined crashes
     if (isNaN(wx) || isNaN(wy) || isNaN(ww) || isNaN(wh)) return
+
+    if (AppConfig.ISOMETRIC.ENABLED) {
+        // Sample points across the bounding box
+        const step = 8 // small enough to catch cells
+        for (let x = wx; x <= wx + ww; x += step) {
+            for (let y = wy; y <= wy + wh; y += step) {
+                const pos = this.worldToGrid(x, y)
+                if (this.inBounds(pos.c, pos.r)) {
+                    this.grid[pos.r][pos.c].walkable = false
+                }
+            }
+        }
+        return
+    }
 
     const c0 = Math.max(0, Math.floor((wx - this.originX) / GRID_TILE))
     const r0 = Math.max(0, Math.floor((wy - this.originY) / GRID_TILE))
@@ -102,11 +123,29 @@ export class AStarGridManager {
     this.markObstacle(body.x, body.y, body.width, body.height)
   }
 
+  worldToGrid(wx: number, wy: number): { c: number, r: number } {
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+      const { ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+      const TILE_HW = TILE_WIDTH / 2
+      const TILE_HH = TILE_HEIGHT / 2
+      const sx = wx - ORIGIN_X
+      const sy = wy - ORIGIN_Y
+      return {
+        c: Math.floor((sx / TILE_HW + sy / TILE_HH) / 2),
+        r: Math.floor((sy / TILE_HH - sx / TILE_HW) / 2)
+      }
+    }
+    return {
+      c: Math.floor((wx - this.originX) / GRID_TILE),
+      r: Math.floor((wy - this.originY) / GRID_TILE)
+    }
+  }
+
   isWalkable(wx: number, wy: number): boolean {
-    const c = Math.floor((wx - this.originX) / GRID_TILE)
-    const r = Math.floor((wy - this.originY) / GRID_TILE)
-    if (!this.inBounds(c, r)) return false
-    return this.grid[r][c].walkable
+    const pos = this.worldToGrid(wx, wy)
+    if (!this.inBounds(pos.c, pos.r)) return false
+    return this.grid[pos.r][pos.c].walkable
   }
 
   /**
@@ -126,10 +165,13 @@ export class AStarGridManager {
    * Trả về mảng WorldPoint (tâm ô lưới) hoặc null nếu không tìm được đường
    */
   findPath(fromWorld: WorldPoint, toWorld: WorldPoint): WorldPoint[] | null {
-    let startC = Math.floor((fromWorld.x - this.originX) / GRID_TILE)
-    let startR = Math.floor((fromWorld.y - this.originY) / GRID_TILE)
-    let goalC  = Math.floor((toWorld.x  - this.originX) / GRID_TILE)
-    let goalR  = Math.floor((toWorld.y  - this.originY) / GRID_TILE)
+    const startPos = this.worldToGrid(fromWorld.x, fromWorld.y)
+    const goalPos  = this.worldToGrid(toWorld.x, toWorld.y)
+    
+    let startC = startPos.c
+    let startR = startPos.r
+    let goalC  = goalPos.c
+    let goalR  = goalPos.r
 
     if (!this.inBounds(startC, startR) || !this.inBounds(goalC, goalR)) {
       console.warn(`[AStar] Out of bounds: Start(${startC},${startR}) Goal(${goalC},${goalR})`)
@@ -248,6 +290,13 @@ export class AStarGridManager {
 
   /** Chuyển chỉ số grid → tọa độ tâm ô trong world */
   gridToWorld(col: number, row: number): WorldPoint {
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+      const { ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+      const screenX = (col - row) * (TILE_WIDTH / 2) + ORIGIN_X
+      const screenY = (col + row) * (TILE_HEIGHT / 2) + ORIGIN_Y
+      return { x: screenX, y: screenY }
+    }
     return {
       x: this.originX + col * GRID_TILE + GRID_TILE / 2,
       y: this.originY + row * GRID_TILE + GRID_TILE / 2,

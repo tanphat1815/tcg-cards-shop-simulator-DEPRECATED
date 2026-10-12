@@ -19,6 +19,59 @@ export const AppConfig = {
     }
   },
 
+  ISOMETRIC: {
+    ENABLED: true,          // Bật chế độ isometric (true = bật, false = oblique 2.5D hiện tại)
+    TILE_WIDTH: 64,          // Chiều rộng tile isometric (px) — tỷ lệ 2:1 với tileHeight
+    TILE_HEIGHT: 32,         // Chiều cao tile isometric (px)
+    GRID_CELL: 16,           // Kích thước ô lưới pathfinding (px)
+    MOVE_Y_SCALE: 0.5,       // Hệ số tốc độ trục Y để khớp tỷ lệ 2:1 (tileHeight/tileWidth)
+    DEPTH_BASE: 100,         // Base depth layer cho dynamic entities
+    CAMERA_OFFSET_X: 200,    // Offset camera X từ gốc tọa độ isometric (để nhìn rõ map)
+    CAMERA_OFFSET_Y: 100,    // Offset camera Y từ gốc tọa độ isometric
+
+    // Isometric map configuration
+    MAP: {
+      GRID_WIDTH: 20,        // Số tiles ngang
+      GRID_HEIGHT: 20,       // Số tiles dọc
+      ORIGIN_X: 320,         // Tọa độ X của gốc isometric trên screen
+      ORIGIN_Y: 64,          // Tọa độ Y của gốc isometric trên screen
+    }
+  },
+
+  /**
+   * ── MATTER.JS PHYSICS CONFIG ──────────────────────────────────────────────
+   * Cấu hình vật lý Matter.js cho chế độ Isometric.
+   * Chỉ được sử dụng khi ISOMETRIC.ENABLED = true.
+   *
+   * NGUYÊN TẮC:
+   * - Gravity = 0 (top-down / isometric, không có rơi tự do)
+   * - Debug = true trong development (tắt trong production)
+   * - Friction settings đảm bảo cảm giác di chuyển mượt mà
+   */
+  MATTER: {
+    DEBUG: true,              // Hiển thị wireframe hitbox — TẮT khi release!
+
+    // Player physics tuning
+    PLAYER: {
+      FOOT_RADIUS: 10,       // Bán kính circle body ở chân (px)
+      FRICTION: 0.1,         // Ma sát tiếp xúc (thấp = trượt ít khi chạm tường)
+      FRICTION_AIR: 0.15,    // Ma sát không khí (cao = dừng nhanh khi thả phím, chống trượt băng)
+      FRICTION_STATIC: 0.5,  // Ma sát tĩnh (ngăn trượt khi đứng trên dốc)
+      RESTITUTION: 0,        // Độ nảy (0 = không nảy khi chạm tường)
+    },
+
+    // Furniture physics
+    FURNITURE: {
+      DIAMOND_SCALE: 0.8,    // Tăng nhẹ độ rộng hitbox
+      FOOT_RATIO: 0.15,      // Giảm chiều cao foot area để hitbox dẹt hơn, sát đất hơn
+    },
+
+    // Wall physics
+    WALL: {
+      BODY_SIZE: 32,          // Tăng mạnh để các wall bodies chạm nhau, tạo thành bức tường đặc
+    },
+  },
+
   ASSETS: {
     // Danh sách các sheet NPC để chọn ngẫu nhiên
     NPC_POOLS: [

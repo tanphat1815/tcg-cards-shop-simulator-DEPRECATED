@@ -1,0 +1,145 @@
+{
+  "compressionlevel": -1,
+  "editorsettings": {
+    "export": {
+      "format": "json",
+      "target": "iso_shop.json"
+    }
+  },
+  "height": 20,
+  "infinite": false,
+  "layers": [
+    {
+      "draworder": "topdown",
+      "id": 1,
+      "name": "Floor",
+      "objects": [],
+      "opacity": 1,
+      "type": "tilelayer",
+      "visible": true,
+      "width": 20,
+      "x": 0,
+      "y": 0,
+      "data": [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+      ]
+    },
+    {
+      "draworder": "topdown",
+      "id": 2,
+      "name": "Furniture",
+      "objects": [
+        {
+          "class": "",
+          "height": 64,
+          "id": 1,
+          "name": "Cashier",
+          "rotation": 0,
+          "type": "cashier",
+          "visible": true,
+          "width": 128,
+          "x": 320,
+          "y": 544
+        },
+        {
+          "class": "",
+          "height": 64,
+          "id": 2,
+          "name": "Shelf1",
+          "rotation": 0,
+          "type": "shelf",
+          "visible": true,
+          "width": 64,
+          "x": 128,
+          "y": 192
+        },
+        {
+          "class": "",
+          "height": 64,
+          "id": 3,
+          "name": "Shelf2",
+          "rotation": 0,
+          "type": "shelf",
+          "visible": true,
+          "width": 64,
+          "x": 256,
+          "y": 192
+        },
+        {
+          "class": "",
+          "height": 64,
+          "id": 4,
+          "name": "Shelf3",
+          "rotation": 0,
+          "type": "shelf",
+          "visible": true,
+          "width": 64,
+          "x": 384,
+          "y": 192
+        },
+        {
+          "class": "",
+          "height": 64,
+          "id": 5,
+          "name": "Table1",
+          "rotation": 0,
+          "type": "table",
+          "visible": true,
+          "width": 128,
+          "x": 256,
+          "y": 320
+        }
+      ],
+      "opacity": 1,
+      "type": "objectgroup",
+      "visible": true,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "mapseed": 12345,
+  "nextlayerid": 3,
+  "nextobjectid": 6,
+  "orientation": "isometric",
+  "renderorder": "right-down",
+  "tiledversion": "1.10.2",
+  "tileheight": 32,
+  "tilesets": [
+    {
+      "columns": 1,
+      "firstgid": 1,
+      "image": "../../src/assets/isometric/iso_floor.png",
+      "imageheight": 32,
+      "imagewidth": 64,
+      "margin": 0,
+      "name": "iso_floor",
+      "spacing": 0,
+      "tilecount": 1,
+      "tileheight": 32,
+      "tilewidth": 64
+    }
+  ],
+  "tilewidth": 64,
+  "type": "map",
+  "version": "1.10",
+  "width": 20
+}

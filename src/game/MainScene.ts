@@ -9,6 +9,19 @@ import floorTileImg from '../assets/images/floor_tile.png'
 import wallTopImg from '../assets/images/wall_top.png'
 import wallSideImg from '../assets/images/wall_side.png'
 import sidewalkTileImg from '../assets/images/sidewalk_tile.png'
+
+// ISO Assets (Real images)
+import isoFloorTileImg from '../assets/images/iso_floor_tile.png'
+import isoSidewalkTileImg from '../assets/images/iso_sidewalk_tile.png'
+import isoWallTopLeftImg from '../assets/images/iso_wall_top_left.png'
+import isoWallTopRightImg from '../assets/images/iso_wall_top_right.png'
+import isoWallSideLeftImg from '../assets/images/iso_wall_side_left.png'
+import isoWallSideRightImg from '../assets/images/iso_wall_side_right.png'
+import isoBoxItemImg from '../assets/images/iso_box_item.png'
+import isoCashierDeskImg from '../assets/images/iso_cashier_desk.png'
+import isoPlayTableImg from '../assets/images/iso_play_table.png'
+import isoShelfSellingImg from '../assets/images/iso_shelf_selling.png'
+import isoCollisionsJson from '../assets/data/iso_collisions.json?url'
 import { TEX } from '../features/environment/assetKeys'
 import {
   applyDynamicYSort,
@@ -25,6 +38,14 @@ import { useCheckoutStore } from '../features/inventory/store/checkoutStore'
 import { WORKERS, SPEED_TO_MS } from '../features/staff/config'
 import { useDeliveryStore } from '../features/inventory/store/deliveryStore'
 import { useFurnitureStore } from '../features/furniture/store/furnitureStore'
+import { 
+  computeIsoDepth, 
+  computeIsoDepthFromScreen,
+  worldToScreen,
+  getIsoEdgePos, 
+  type IsoEdge,
+  DEPTH_OFFSETS
+} from '../features/environment/utils/IsometricUtils'
 import { DEPTH } from '../features/environment/config'
 import { EnvironmentManager } from '../features/environment/managers/EnvironmentManager'
 import { FurnitureManager } from '../features/furniture/managers/FurnitureManager'
@@ -40,10 +61,19 @@ import { useWorldStore } from '../features/world/store/worldStore'
 import { SHOP_SCENE_KEY, TOWN_SCENE_KEY } from '../features/world/constants'
 import { registerCharacterAnimations } from './utils/characterAnimations'
 import { useGymStore } from '../features/gym/store/gymStore'
+import { generateIsoAssets } from '../features/environment/utils/IsoAssetGenerator'
+import {
+  applyMatterFootCollider,
+  createStaticWallBody,
+  COLLISION_CATEGORIES,
+} from '../features/environment/physics/PhysicsUtils'
 
 export default class MainScene extends Phaser.Scene {
   // ── Entities ─────────────────────────────────────────────────────────────────
-  public player!: Phaser.Physics.Arcade.Sprite
+  // Player sprite type depends on physics mode:
+  //   Isometric → Phaser.Physics.Matter.Sprite (polygon collision)
+  //   Oblique   → Phaser.Physics.Arcade.Sprite (rectangle collision)
+  public player!: Phaser.Physics.Arcade.Sprite | Phaser.Physics.Matter.Sprite
   private playerShadow!: Phaser.GameObjects.Graphics
   private playerFSM!: PlayerFSM
 
@@ -92,27 +122,68 @@ export default class MainScene extends Phaser.Scene {
     p: Phaser.Input.Keyboard.Key
   }
 
-  constructor() { super({ key: SHOP_SCENE_KEY }) }
+  // ── Isometric Mode ────────────────────────────────────────────────────────────
+
+
+  constructor() {
+    super({
+      key: SHOP_SCENE_KEY,
+      physics: {
+        default: 'arcade',
+        arcade: {
+          gravity: { x: 0, y: 0 },
+          debug: false
+        },
+        matter: {
+          gravity: { x: 0, y: 0 },
+          debug: AppConfig.MATTER.DEBUG
+        }
+      }
+    })
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   preload() {
-    this.load.spritesheet(TEX.PLAYER, playerSheet, { frameWidth: 32, frameHeight: 48 })
-    AppConfig.ASSETS.NPC_POOLS.forEach(pool =>
-      this.load.spritesheet(pool.key, `src/assets/images/${pool.path}`, { frameWidth: 32, frameHeight: 48 })
-    )
-    AppConfig.ASSETS.STAFF_POOLS.forEach(pool =>
-      this.load.spritesheet(pool.key, `src/assets/images/${pool.path}`, { frameWidth: 32, frameHeight: 48 })
-    )
-    this.load.image(TEX.SHELF_SELLING,  shelfSellingImg)
-    this.load.image(TEX.SHELF_STORAGE,  shelfStorageImg)
-    this.load.image(TEX.CASHIER_DESK,   cashierDeskImg)
-    this.load.image(TEX.PLAY_TABLE,     playTableImg)
-    this.load.image(TEX.BOX_ITEM,       boxItemImg)
-    this.load.image(TEX.PACKAGE_BOX,    boxItemImg)
-    this.load.image(TEX.FLOOR_TILE,     floorTileImg)
-    this.load.image(TEX.WALL_TOP,       wallTopImg)
-    this.load.image(TEX.WALL_SIDE,      wallSideImg)
-    this.load.image(TEX.SIDEWALK_TILE,  sidewalkTileImg)
+    // ── ISOMETRIC MODE: Generate runtime assets ────────────────────────────────
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      generateIsoAssets(this)
+      
+      // Override generated placeholder textures with your real images
+      this.load.image(TEX.ISO_FLOOR, isoFloorTileImg)
+      this.load.image(TEX.ISO_SIDEWALK, isoSidewalkTileImg)
+      this.load.image(TEX.ISO_WALL_SIDE_LEFT, isoWallSideLeftImg)
+      this.load.image(TEX.ISO_WALL_SIDE_RIGHT, isoWallSideRightImg)
+      this.load.image(TEX.ISO_WALL_TOP_LEFT, isoWallTopLeftImg)
+      this.load.image(TEX.ISO_WALL_TOP_RIGHT, isoWallTopRightImg)
+      this.load.image(TEX.ISO_SHELF, isoShelfSellingImg)
+      this.load.image(TEX.ISO_CASHIER, isoCashierDeskImg)
+      this.load.image(TEX.ISO_TABLE, isoPlayTableImg)
+      this.load.image(TEX.ISO_BOX, isoBoxItemImg)
+      
+      // Load custom collision shapes
+      this.load.json('iso_collisions', isoCollisionsJson)
+    }
+
+    // ── OBLIQUE MODE: Load original assets ───────────────────────────────────
+    if (!AppConfig.ISOMETRIC.ENABLED) {
+      this.load.spritesheet(TEX.PLAYER, playerSheet, { frameWidth: 32, frameHeight: 48 })
+      AppConfig.ASSETS.NPC_POOLS.forEach(pool =>
+        this.load.spritesheet(pool.key, `src/assets/images/${pool.path}`, { frameWidth: 32, frameHeight: 48 })
+      )
+      AppConfig.ASSETS.STAFF_POOLS.forEach(pool =>
+        this.load.spritesheet(pool.key, `src/assets/images/${pool.path}`, { frameWidth: 32, frameHeight: 48 })
+      )
+      this.load.image(TEX.SHELF_SELLING,  shelfSellingImg)
+      this.load.image(TEX.SHELF_STORAGE,  shelfStorageImg)
+      this.load.image(TEX.CASHIER_DESK,   cashierDeskImg)
+      this.load.image(TEX.PLAY_TABLE,     playTableImg)
+      this.load.image(TEX.BOX_ITEM,       boxItemImg)
+      this.load.image(TEX.PACKAGE_BOX,    boxItemImg)
+      this.load.image(TEX.FLOOR_TILE,     floorTileImg)
+      this.load.image(TEX.WALL_TOP,       wallTopImg)
+      this.load.image(TEX.WALL_SIDE,      wallSideImg)
+      this.load.image(TEX.SIDEWALK_TILE,  sidewalkTileImg)
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -128,7 +199,7 @@ export default class MainScene extends Phaser.Scene {
     this.vignetteGraphics   = this.add.graphics().setDepth(DEPTH.EDIT_OVERLAY + 1).setScrollFactor(0)
     this.gatePathway       = this.add.graphics().setDepth(DEPTH.FLOOR + 0.5)
 
-    // Managers
+    // ── MANAGERS ─────────────────────────────────────────────────────────────
     this.environmentManager = new EnvironmentManager(this)
     this.furnitureManager   = new FurnitureManager(this)
     this.npcManager         = new NPCManager(this, this.environmentManager)
@@ -139,94 +210,270 @@ export default class MainScene extends Phaser.Scene {
     const shopBounds = this.environmentManager.getShopBounds()
     aStarGrid.initialize(shopBounds.x, shopBounds.y, shopBounds.w, shopBounds.h)
 
-    // World / camera bounds
-    this.physics.world.setBounds(0, 0, 5500, 3000)
-    this.cameras.main.setBounds(0, 0, 5500, 3000)
-      .setBackgroundColor('#000000')
-      .setZoom(AppConfig.GAME.CAMERA.ZOOM)
-      .setRoundPixels(true)
+    // ── ISOMETRIC MODE: Create isometric map ──────────────────────────────────
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      this.setupIsometricMap()
+      
+      const { GRID_WIDTH, GRID_HEIGHT, ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+      const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+      const mapPixelW = (GRID_WIDTH + GRID_HEIGHT) * (TILE_WIDTH / 2)
+      const mapPixelH = (GRID_WIDTH + GRID_HEIGHT) * (TILE_HEIGHT / 2)
 
-    // Environment
-    this.environmentManager.initializeEnvironment()
-    this.furnitureManager.initializeFurniture()
+      // Camera — no zoom so player is clearly visible; center of map at center of screen
+      this.cameras.main.setBounds(-mapPixelW, -mapPixelH, mapPixelW * 3, mapPixelH * 3)
+        .setBackgroundColor('#1a1a2e')
+        .setZoom(AppConfig.GAME.CAMERA.ZOOM)
+        .setRoundPixels(true)
+        
+      // ── Matter.js world bounds ──────────────────────────────────────────────
+      this.matter.world.setBounds(-mapPixelW, -mapPixelH, mapPixelW * 3, mapPixelH * 3)
 
-    // ── PLAYER SPAWN ──────────────────────────────────────────────────────────
-    const spawn = this.resolveInitialPlayerSpawn()
-    this.player = this.physics.add.sprite(spawn.x, spawn.y, TEX.PLAYER, 0)
-    this.player.setOrigin(0.5, 1)
-    applyFootCollider(this.player, 0.3)
-    this.player.refreshBody()
-    this.player.setCollideWorldBounds(true)
-    applyDynamicYSort(this.player)
+      // Spawn at center of map (in WORLD coordinates)
+      const spawnCol = Math.floor(GRID_WIDTH / 2)
+      const spawnRow = Math.floor(GRID_HEIGHT / 2)
+      const spawnPos = worldToScreen(spawnCol, spawnRow, ORIGIN_X, ORIGIN_Y)
 
-    // Drop shadow — created AFTER player so z-order is correct
-    this.playerShadow = createDropShadow(this, this.player, { radiusX: 14, radiusY: 6, alpha: 0.35 })
+      // ── SPAWN PLAYER as Matter.js Sprite ────────────────────────────────────
+      this.player = this.matter.add.sprite(spawnPos.x, spawnPos.y, TEX.PLAYER_ISO, 0)
+      this.player.setOrigin(0.5, 1)
 
-    // Camera follow
-    this.cameras.main.startFollow(this.player, true, 0.05, 0.05)
-    this.cameras.main.centerOn(this.player.x, this.player.y)
+      // ISO: Use Matter foot collider with custom shape
+      const shapeKey = (this.player as any).texture.key === 'player_iso' ? 'player_iso' : 'player_iso'
+      applyMatterFootCollider(
+        this.player as Phaser.Physics.Matter.Sprite,
+        shapeKey,
+        {
+          label: 'player_hitbox',
+          category: COLLISION_CATEGORIES.PLAYER,
+          mask: COLLISION_CATEGORIES.WALL | COLLISION_CATEGORIES.FURNITURE | COLLISION_CATEGORIES.NPC,
+        }
+      )
 
-    // ── INPUT ─────────────────────────────────────────────────────────────────
-    this.setupInputs()
+      const depth = computeIsoDepth(spawnCol, spawnRow, 0, AppConfig.ISOMETRIC.DEPTH_BASE)
+      this.player.setDepth(depth)
 
-    // ── PLAYER FSM ────────────────────────────────────────────────────────────
-    this.playerFSM = new PlayerFSM(this.player, this.cursors, GAME_BALANCE.PLAYER.BASE_SPEED, 'player')
+      // Player shadow
+      this.playerShadow = this.add.graphics()
+      this.playerShadow.fillStyle(0x000000, 0.35)
+      this.playerShadow.fillEllipse(0, 0, 24, 10)
+      this.playerShadow.setDepth(depth - 1)
 
-    // ── UI OVERLAY TEXT ───────────────────────────────────────────────────────
-    this.setupUI()
+      this.events.on('postupdate', () => {
+        if (!this.player || !this.playerShadow) return
+        this.playerShadow.setPosition(this.player.x, this.player.y)
+        this.playerShadow.setDepth(this.player.depth - 1)
+      })
 
-    // Collisions
-    this.physics.add.collider(this.player, this.environmentManager.wallsGroup)
-    this.physics.add.collider(this.player, this.furnitureManager.shelvesGroup)
-    this.physics.add.collider(this.player, this.furnitureManager.tablesGroup)
-    this.physics.add.collider(this.player, this.furnitureManager.cashierGroup)
+      // Camera starts centered on spawn
+      this.cameras.main.centerOn(spawnPos.x, spawnPos.y)
+      this.cameras.main.startFollow(this.player, true, 0.08, 0.08)
 
-    // Store subscriptions
-    this.setupStoreSubscriptions(gameStore)
-    this.staffManager.syncWorkers()
+      // ── INPUT ─────────────────────────────────────────────────────────────
+      this.setupInputs()
 
-    // NPC spawn loop
-    this.npcManager.initializeNPCs()
+      // ── PLAYER FSM ────────────────────────────────────────────────────────
+      this.playerFSM = new PlayerFSM(
+        this.player,
+        this.cursors,
+        GAME_BALANCE.PLAYER.BASE_SPEED,
+        'player'
+      )
 
-    // Camera drag
-    this.setupCameraDrag()
-    this.environmentManager.refreshEnvironment()
-    this.refreshAStarGrid()
+      this.add.text(10, 10, 'ISOMETRIC MODE (Matter.js)\nWASD to move', {
+        fontSize: '14px', fontFamily: 'monospace', color: '#00ff00',
+        backgroundColor: '#000000aa', lineSpacing: 8
+      }).setScrollFactor(0).setDepth(9999)
 
-    // Warp gate text
-    this.shopToTownGate = this.add.text(0, 0, AppConfig.UI.TITLES.GYM_TOWN, {
-      fontSize: '20px', backgroundColor: 'rgba(0,0,0,0.6)',
-      padding: { x: 10, y: 5 }, color: '#f6e05e'
-    }).setOrigin(0.5).setDepth(DEPTH.FLOOR + 1)
-    this.refreshGates()
+      // Enable environment logic for Isometric Mode too
+      this.environmentManager.initializeEnvironment()
+      this.furnitureManager.initializeFurniture()
+      
+      // Initialize missing entities and features for Isometric Mode
+      this.npcManager.initializeNPCs()
+      this.staffManager.syncWorkers()
+      this.refreshGates()
+      this.setupUI()
 
-    this.events.on(Phaser.Scenes.Events.WAKE, this.handleWake, this)
-    this.events.on(Phaser.Scenes.Events.SLEEP, this.handleSleep, this)
+      // ── MATTER.JS COLLISION EVENTS ──────────────────────────────────────────
+      // Replace Arcade's this.physics.add.collider() with Matter event system.
+      // Matter.js uses a global event listener for all collision pairs.
+      this.setupMatterCollisionEvents()
 
-    // Cleanup on shutdown
-    this.events.once('shutdown', () => {
+      // ── OBLIQUE MODE: Original environment setup ─────────────────────────────
+    } else {
+      // World / camera bounds
+      this.physics.world.setBounds(0, 0, 5500, 3000)
+      this.cameras.main.setBounds(0, 0, 5500, 3000)
+        .setBackgroundColor('#000000')
+        .setZoom(AppConfig.GAME.CAMERA.ZOOM)
+        .setRoundPixels(true)
+
+      // Environment
+      this.environmentManager.initializeEnvironment()
+      this.furnitureManager.initializeFurniture()
+
+      // ── PLAYER SPAWN ──────────────────────────────────────────────────────────
+      const spawn = this.resolveInitialPlayerSpawn()
+      this.player = this.physics.add.sprite(spawn.x, spawn.y, TEX.PLAYER, 0)
+      this.player.setOrigin(0.5, 1)
+
+      // ── Oblique physics setup ───────────────────────────────────────────────
+      applyFootCollider(this.player, 0.3)
+      this.player.refreshBody()
+      applyDynamicYSort(this.player)
+      this.player.setCollideWorldBounds(true)
+
+      // Drop shadow
+      this.playerShadow = createDropShadow(this, this.player, { radiusX: 14, radiusY: 6, alpha: 0.35 })
+
+      // Camera follow
+      this.cameras.main.startFollow(this.player, true, 0.05, 0.05)
+      this.cameras.main.centerOn(this.player.x, this.player.y)
+
+      // ── INPUT ─────────────────────────────────────────────────────────────────
+      this.setupInputs()
+
+      // ── PLAYER FSM ────────────────────────────────────────────────────────────
+      this.playerFSM = new PlayerFSM(this.player, this.cursors, GAME_BALANCE.PLAYER.BASE_SPEED, 'player')
+
+      // ── UI OVERLAY TEXT ───────────────────────────────────────────────────────
+      this.setupUI()
+
+      // Collisions
+      this.physics.add.collider(this.player, this.environmentManager.wallsGroup)
+      this.physics.add.collider(this.player, this.furnitureManager.shelvesGroup)
+      this.physics.add.collider(this.player, this.furnitureManager.tablesGroup)
+      this.physics.add.collider(this.player, this.furnitureManager.cashierGroup)
+
+      // Store subscriptions
+      this.setupStoreSubscriptions(gameStore)
+      this.staffManager.syncWorkers()
+
+      // NPC spawn loop
+      this.npcManager.initializeNPCs()
+
+      // Camera drag
+      this.setupCameraDrag()
+      this.environmentManager.refreshEnvironment()
+      this.refreshAStarGrid()
+
+      // Warp gate text
+      this.shopToTownGate = this.add.text(0, 0, AppConfig.UI.TITLES.GYM_TOWN, {
+        fontSize: '20px', backgroundColor: 'rgba(0,0,0,0.6)',
+        padding: { x: 10, y: 5 }, color: '#f6e05e'
+      }).setOrigin(0.5).setDepth(DEPTH.FLOOR + 1)
+      this.refreshGates()
+
+      this.events.on(Phaser.Scenes.Events.WAKE, this.handleWake, this)
+      this.events.on(Phaser.Scenes.Events.SLEEP, this.handleSleep, this)
+
+      // Cleanup on shutdown
+      this.events.once('shutdown', () => {
+        this.syncWorldSnapshots()
+        this.storeUnsubscribers.forEach(u => u())
+        this.storeUnsubscribers = []
+        this.npcManager.destroy()
+        this.staffManager.destroy()
+        this.furnitureManager.destroy()
+        this.environmentManager.destroy()
+        this.deliveryManager.destroy()
+        this.events.off(Phaser.Scenes.Events.WAKE, this.handleWake, this)
+        this.events.off(Phaser.Scenes.Events.SLEEP, this.handleSleep, this)
+      })
+
+      const worldStore = useWorldStore()
+      worldStore.setCurrentScene(SHOP_SCENE_KEY, 'shop')
+      useGymStore().setPlayerInTown(false)
+      this.playerFSM.resetToIdle(spawn.facing)
       this.syncWorldSnapshots()
-      this.storeUnsubscribers.forEach(u => u())
-      this.storeUnsubscribers = []
-      this.npcManager.destroy()
-      this.staffManager.destroy()
-      this.furnitureManager.destroy()
-      this.environmentManager.destroy()
-      this.deliveryManager.destroy()
-      this.events.off(Phaser.Scenes.Events.WAKE, this.handleWake, this)
-      this.events.off(Phaser.Scenes.Events.SLEEP, this.handleSleep, this)
-    })
+    }
+  }
 
-    const worldStore = useWorldStore()
-    worldStore.setCurrentScene(SHOP_SCENE_KEY, 'shop')
-    useGymStore().setPlayerInTown(false)
-    this.playerFSM.resetToIdle(spawn.facing)
-    this.syncWorldSnapshots()
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ISOMETRIC MAP SETUP
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Creates the isometric floor grid with proper isometric shading.
+   * Each tile has a top face (lightest), right face, and left face (darkest).
+   * The lighting direction is from top-left, giving depth perception.
+   */
+  private setupIsometricMap(): void {
+    const { GRID_WIDTH, GRID_HEIGHT, ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+
+    const floorG = this.add.graphics()
+    floorG.setDepth(DEPTH.LAYER1_FLOOR)
+
+
+    for (let row = 0; row < GRID_HEIGHT; row++) {
+      for (let col = 0; col < GRID_WIDTH; col++) {
+        const { x, y } = worldToScreen(col, row, ORIGIN_X, ORIGIN_Y)
+        
+        const isWall = (col === 3 || col === GRID_WIDTH - 4 || row === 3 || row === GRID_HEIGHT - 4)
+        const isInsideShop = (col > 3 && col < GRID_WIDTH - 4 && row > 3 && row < GRID_HEIGHT - 4)
+        const isDoor = (col === GRID_WIDTH - 4 && row === 13) // Vị trí cửa cố định
+
+        if (isInsideShop || isWall) {
+          // Luôn vẽ sàn trước cho mọi ô trong shop
+          this.add.image(x, y, TEX.ISO_FLOOR)
+            .setOrigin(0.5, 0.5)
+            .setDepth(DEPTH.LAYER1_FLOOR)
+        }
+
+        if (isWall && !isDoor) {
+          const depthBase = computeIsoDepth(col, row, 0, AppConfig.ISOMETRIC.DEPTH_BASE)
+          const wallHeight = 32 // Chiều cao chuẩn của 1 block isometric 2:1
+
+          const drawWallSegment = (side: 'left' | 'right', edge: IsoEdge, isSouth: boolean) => {
+            const pos = getIsoEdgePos(x, y, edge)
+            const sideTex = (side === 'left') ? TEX.ISO_WALL_SIDE_LEFT : TEX.ISO_WALL_SIDE_RIGHT
+            const topTex = (side === 'left') ? TEX.ISO_WALL_TOP_LEFT : TEX.ISO_WALL_TOP_RIGHT
+
+            // 1. Render Mặt tường (Chỉ cho tường Bắc để tránh che tầm nhìn)
+            if (!isSouth) {
+              this.add.image(pos.x, pos.y, sideTex)
+                .setOrigin(0.5, 1)
+                .setDepth(depthBase + DEPTH_OFFSETS.FURNITURE)
+            }
+
+            // 2. Render Nắp tường
+            // topY: Nếu là tường Bắc thì trừ wallHeight, tường Nam thì đặt sát sàn
+            const topY = isSouth ? pos.y : pos.y - wallHeight
+            this.add.image(pos.x, topY, topTex)
+              .setOrigin(0.5, 1)
+              .setDepth(depthBase + DEPTH_OFFSETS.WALL_TOP)
+
+            // 3. Hitbox vật lý
+            const bodySize = AppConfig.MATTER.WALL.BODY_SIZE
+            try {
+              createStaticWallBody(this, pos.x, pos.y - (bodySize / 2), bodySize, bodySize, `wall_${edge}_${col}_${row}`)
+            } catch (e) {
+              console.warn("Matter.js Wall Error:", e)
+            }
+          }
+
+          // Xác định các cạnh biên
+          if (col === 3)               drawWallSegment('left',  'NW', false) // Tường Bắc-Trái
+          if (row === 3)               drawWallSegment('right', 'NE', false) // Tường Bắc-Phải
+          if (row === GRID_HEIGHT - 4) drawWallSegment('right', 'SW', true)  // Tường Nam-Trái (Cắt mặt)
+          if (col === GRID_WIDTH - 4)  drawWallSegment('left',  'SE', true)  // Tường Nam-Phải (Cắt mặt)
+
+        } else if (!isInsideShop) {
+          // Vỉa hè ngoài shop
+          this.add.image(x, y, TEX.ISO_SIDEWALK)
+            .setOrigin(0.5, 0.5)
+            .setDepth(DEPTH.LAYER1_FLOOR)
+          continue
+        }
+      }
+    }
+
+    console.info(`[MainScene] Isometric map: ${GRID_WIDTH}x${GRID_HEIGHT} tiles`)
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
   update(time: number, _delta: number) {
-    if (!this.cursors || !this.player.body || !this.keyE) return
+    if (!this.cursors || !this.player?.body || !this.keyE) return
 
     const store = useGameStore()
 
@@ -236,10 +483,10 @@ export default class MainScene extends Phaser.Scene {
 
     if (!isBuildMode && !isEditMode) {
       try {
-        this.npcManager.update()
-        this.furnitureManager.updateFurnitureVisuals(time)
-        this.staffManager.update(time)
-        this.deliveryManager.update(time, this.player.x, this.player.y)
+        if (this.npcManager) this.npcManager.update()
+        if (this.furnitureManager) this.furnitureManager.updateFurnitureVisuals(time)
+        if (this.staffManager) this.staffManager.update(time)
+        if (this.deliveryManager) this.deliveryManager.update(time, this.player.x, this.player.y)
         this.handleAutoCheckout(time)
       } catch (err) {
         console.error('[MainScene] Manager update error:', err)
@@ -269,7 +516,13 @@ export default class MainScene extends Phaser.Scene {
     if (store.isBuildMode || store.isEditMode) {
       this.handleBuildMode(store)
       // Lock player movement in build mode
-      this.player.setVelocity(0)
+      try {
+        if (AppConfig.ISOMETRIC.ENABLED) {
+          (this.player as Phaser.Physics.Matter.Sprite).setVelocity(0, 0)
+        } else {
+          (this.player as Phaser.Physics.Arcade.Sprite).setVelocity(0)
+        }
+      } catch (_e) { /* ignore */ }
       if (this.player.anims.isPlaying) this.player.anims.stop()
     } else {
       // ── PlayerFSM handles movement + animation ────────────────────────────
@@ -277,12 +530,32 @@ export default class MainScene extends Phaser.Scene {
       this.clearGhostIfNecessary()
     }
 
-    // ── Y-Sort player each frame ──────────────────────────────────────────────
-    applyDynamicYSort(this.player)
+    // ── Depth sorting: isometric (3D formula) vs oblique (Y-sort) ─────────────
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      const { ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+      
+      // Isometric depth: dùng helper chuẩn từ IsometricUtils
+      const depth = computeIsoDepthFromScreen(
+        this.player.x, 
+        this.player.y, 
+        ORIGIN_X, 
+        ORIGIN_Y,
+        DEPTH_OFFSETS.PLAYER, // WorldZ giả lập cho Player
+        AppConfig.ISOMETRIC.DEPTH_BASE
+      )
+      
+      this.player.setDepth(depth)
 
-    // ── UPDATE DROP SHADOW ────────────────────────────────────────────────────
-    // Shadow follows player foot position every frame
-    updateDropShadow(this.playerShadow, this.player, { radiusX: 14, radiusY: 6, alpha: 0.35 })
+      // Update shadow position
+      if (this.playerShadow) {
+        this.playerShadow.setPosition(this.player.x, this.player.y + 4)
+        this.playerShadow.setDepth(depth + DEPTH_OFFSETS.SHADOW)
+      }
+    } else {
+      // Oblique 2.5D: Y-sort based on foot position
+      applyDynamicYSort(this.player)
+      updateDropShadow(this.playerShadow, this.player, { radiusX: 14, radiusY: 6, alpha: 0.35 })
+    }
 
     // Debug physics
     this.updateDebugPhysics()
@@ -364,10 +637,11 @@ export default class MainScene extends Phaser.Scene {
   private updateEditVignette(isEditMode: boolean) {
     this.vignetteGraphics.clear()
     if (!isEditMode) {
-      if (this.editText.visible) this.editText.setVisible(false)
+      if (this.editText && this.editText.visible) this.editText.setVisible(false)
       return
     }
 
+    if (!this.editText) return
     this.editText.setVisible(true).setText('--- EDIT MODE (FREEZED) ---')
 
     const w = this.scale.width
@@ -522,7 +796,7 @@ export default class MainScene extends Phaser.Scene {
       worldStore.syncPlayerSnapshot(SHOP_SCENE_KEY, {
         x: this.player?.x ?? 0,
         y: this.player?.y ?? 0,
-        facing: this.playerFSM?.currentFacing ?? 'down'
+        facing: (this.playerFSM?.currentFacing ?? 'down') as 'down' | 'up' | 'left' | 'right'
       })
 
       worldStore.syncNPCSnapshots('shop', this.npcManager?.getWorldSnapshots?.() ?? [])
@@ -595,7 +869,7 @@ export default class MainScene extends Phaser.Scene {
     // Delivery
     if (this.deliveryManager) {
       const deliveryStore = useDeliveryStore()
-      const nearShelf     = this.getNearestFromGroup(this.furnitureManager.shelvesGroup, 70)
+      const nearShelf     = this.furnitureManager.getNearestFurniture('shelf', this.player.x, this.player.y, 70)
       if (nearShelf) {
         const handled = this.deliveryManager.handleShelfInteraction(nearShelf.getData('id'))
         if (handled) return
@@ -623,23 +897,12 @@ export default class MainScene extends Phaser.Scene {
     }
 
     // Manual checkout
-    const nearCashier = this.getNearestFromGroup(this.furnitureManager.cashierGroup, 80)
+    const nearCashier = this.furnitureManager.getNearestFurniture('cashier', this.player.x, this.player.y, 80)
     if (nearCashier && store.waitingCustomers > 0) { store.openManualCheckout(); return }
 
     // Shelf management
-    const nearShelf = this.getNearestFromGroup(this.furnitureManager.shelvesGroup, 70)
+    const nearShelf = this.furnitureManager.getNearestFurniture('shelf', this.player.x, this.player.y, 70)
     if (nearShelf) store.openShelfManagement(nearShelf.getData('id'))
-  }
-
-  private getNearestFromGroup(group: Phaser.Physics.Arcade.StaticGroup, maxDist: number): Phaser.Physics.Arcade.Sprite | null {
-    let nearest: Phaser.Physics.Arcade.Sprite | null = null
-    let minDist = maxDist
-    group.getChildren().forEach(child => {
-      const sprite = child as Phaser.Physics.Arcade.Sprite
-      const dist   = Phaser.Math.Distance.Between(this.player.x, this.player.y, sprite.x, sprite.y)
-      if (dist < minDist) { minDist = dist; nearest = sprite }
-    })
-    return nearest
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -762,19 +1025,43 @@ export default class MainScene extends Phaser.Scene {
       }
     }
 
+    let px = pointer.worldX; let py = pointer.worldY
+    if (AppConfig.ISOMETRIC.ENABLED) {
+        const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+        const { ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+        const sx = px - ORIGIN_X; const sy = py - ORIGIN_Y
+        const col = Math.floor((sx / (TILE_WIDTH/2) + sy / (TILE_HEIGHT/2)) / 2)
+        const row = Math.floor((sy / (TILE_HEIGHT/2) - sx / (TILE_WIDTH/2)) / 2)
+        px = (col - row) * (TILE_WIDTH / 2) + ORIGIN_X
+        py = (col + row) * (TILE_HEIGHT / 2) + ORIGIN_Y
+    }
+
     if (this.ghostRectangle) {
-      this.ghostRectangle.setPosition(pointer.worldX, pointer.worldY)
-      if (this.ghostText) this.ghostText.setPosition(pointer.worldX, pointer.worldY)
+      this.ghostRectangle.setPosition(px, py)
+      if (this.ghostText) this.ghostText.setPosition(px, py)
     } else if (this.ghostSprite) {
-      this.ghostSprite.setOrigin(0.5, 1).setPosition(pointer.worldX, pointer.worldY)
+      this.ghostSprite.setOrigin(0.5, 1).setPosition(px, py)
     }
   }
 
   private validatePlacement(pointer: Phaser.Input.Pointer): boolean {
     const pad    = 10
-    const bounds = this.environmentManager.getShopBounds()
-    if (pointer.worldX < bounds.x + pad || pointer.worldX > bounds.x + bounds.w - pad ||
-        pointer.worldY < bounds.y + pad || pointer.worldY > bounds.y + bounds.h - pad) return false
+    
+    let px = pointer.worldX; let py = pointer.worldY
+    if (AppConfig.ISOMETRIC.ENABLED) {
+        const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+        const { ORIGIN_X, ORIGIN_Y, GRID_WIDTH, GRID_HEIGHT } = AppConfig.ISOMETRIC.MAP
+        const sx = px - ORIGIN_X; const sy = py - ORIGIN_Y
+        const col = Math.floor((sx / (TILE_WIDTH/2) + sy / (TILE_HEIGHT/2)) / 2)
+        const row = Math.floor((sy / (TILE_HEIGHT/2) - sx / (TILE_WIDTH/2)) / 2)
+        
+        // Boundaries of Isometric Shop (grid col/row)
+        if (col < 2 || col >= GRID_WIDTH - 2 || row < 2 || row >= GRID_HEIGHT - 2) return false
+    } else {
+        const bounds = this.environmentManager.getShopBounds()
+        if (px < bounds.x + pad || px > bounds.x + bounds.w - pad ||
+            py < bounds.y + pad || py > bounds.y + bounds.h - pad) return false
+    }
 
     const fid     = useGameStore().buildItemId || useGameStore().editFurnitureData?.furnitureId
     const profile = this.getFurnitureProfile(fid || '')
@@ -786,7 +1073,19 @@ export default class MainScene extends Phaser.Scene {
       h = ((this.ghostRectangle as any).height || 40) * profile.ratio
     }
 
-    const rect = new Phaser.Geom.Rectangle(pointer.worldX - w / 2, pointer.worldY - h, w, h)
+    let px2 = pointer.worldX; let py2 = pointer.worldY
+    if (AppConfig.ISOMETRIC.ENABLED) {
+        const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+        const { ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+        const sx = pointer.worldX - ORIGIN_X; const sy = pointer.worldY - ORIGIN_Y
+        const col = Math.floor((sx / (TILE_WIDTH/2) + sy / (TILE_HEIGHT/2)) / 2)
+        const row = Math.floor((sy / (TILE_HEIGHT/2) - sx / (TILE_WIDTH/2)) / 2)
+        // Snap to center of isometric tile
+        px2 = (col - row) * (TILE_WIDTH / 2) + ORIGIN_X
+        py2 = (col + row) * (TILE_HEIGHT / 2) + ORIGIN_Y
+    }
+
+    const rect = new Phaser.Geom.Rectangle(px2 - w / 2, py2 - h, w, h)
     const groups = [
       this.environmentManager.wallsGroup,
       this.furnitureManager.cashierGroup,
@@ -824,7 +1123,17 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private placeFurniture(pointer: Phaser.Input.Pointer, store: any) {
-    const placed = store.placeFurniture(pointer.worldX, pointer.worldY, this.currentRotation)
+    let px = pointer.worldX; let py = pointer.worldY
+    if (AppConfig.ISOMETRIC.ENABLED) {
+        const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+        const { ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+        const sx = px - ORIGIN_X; const sy = py - ORIGIN_Y
+        const col = Math.floor((sx / (TILE_WIDTH/2) + sy / (TILE_HEIGHT/2)) / 2)
+        const row = Math.floor((sy / (TILE_HEIGHT/2) - sx / (TILE_WIDTH/2)) / 2)
+        px = (col - row) * (TILE_WIDTH / 2) + ORIGIN_X
+        py = (col + row) * (TILE_HEIGHT / 2) + ORIGIN_Y
+    }
+    const placed = store.placeFurniture(px, py, this.currentRotation)
     this.lastPlacementTime = this.time.now
     this.currentRotation   = 0
     if (placed) this.furnitureManager.addFurnitureToScene(placed)
@@ -872,9 +1181,19 @@ export default class MainScene extends Phaser.Scene {
         w = (this.ghostRectangle as any).width  || 80
         h = ((this.ghostRectangle as any).height || 40) * profile.ratio
       }
-      this.placementGraphics.fillRect(this.input.activePointer.worldX - w / 2, this.input.activePointer.worldY - h, w, h)
+      let px = this.input.activePointer.worldX; let py = this.input.activePointer.worldY
+      if (AppConfig.ISOMETRIC.ENABLED) {
+          const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+          const { ORIGIN_X, ORIGIN_Y } = AppConfig.ISOMETRIC.MAP
+          const sx = px - ORIGIN_X; const sy = py - ORIGIN_Y
+          const col = Math.floor((sx / (TILE_WIDTH/2) + sy / (TILE_HEIGHT/2)) / 2)
+          const row = Math.floor((sy / (TILE_HEIGHT/2) - sx / (TILE_WIDTH/2)) / 2)
+          px = (col - row) * (TILE_WIDTH / 2) + ORIGIN_X
+          py = (col + row) * (TILE_HEIGHT / 2) + ORIGIN_Y
+      }
+      this.placementGraphics.fillRect(px - w / 2, py - h, w, h)
       this.placementGraphics.lineStyle(2, isValid ? 0x00ff00 : 0xff0000, 1)
-      this.placementGraphics.strokeRect(this.input.activePointer.worldX - w / 2, this.input.activePointer.worldY - h, w, h)
+      this.placementGraphics.strokeRect(px - w / 2, py - h, w, h)
     }
 
     this.placementGraphics.fillStyle(0xff00ff, 0.3)
@@ -903,6 +1222,11 @@ export default class MainScene extends Phaser.Scene {
 
   private updateDebugPhysics() {
     const statsStore = useStatsStore()
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      // Matter.js debug is controlled via the physics config (debug: true/false)
+      // No manual debug graphic needed — Matter draws its own wireframes
+      return
+    }
     if (!this.debugGraphic) {
       this.debugGraphic = this.physics.world.createDebugGraphic()
       this.debugGraphic.setDepth(99999)
@@ -910,7 +1234,50 @@ export default class MainScene extends Phaser.Scene {
     this.debugGraphic.setVisible(statsStore.settings.showDebugPhysics)
   }
 
+  /**
+   * ── MATTER.JS COLLISION EVENT HANDLER ────────────────────────────────────────
+   * Thay thế Arcade's this.physics.add.collider() / overlap().
+   * Matter.js dùng event-driven system thay vì per-pair colliders.
+   */
+  private setupMatterCollisionEvents() {
+    if (!AppConfig.ISOMETRIC.ENABLED) return
+
+    try {
+      // collisionstart: Khi hai bodies bắt đầu chồng lên nhau
+      this.matter.world.on('collisionstart', (event: any) => {
+        try {
+          for (const pair of event.pairs) {
+            const bodyA = pair.bodyA
+            const bodyB = pair.bodyB
+            const labelA = bodyA.label || ''
+            const labelB = bodyB.label || ''
+
+            // Player vs Furniture interaction zone (sensor overlap)
+            if (labelA === 'player' || labelB === 'player') {
+              const otherLabel = labelA === 'player' ? labelB : labelA
+              // Log collision for debugging
+              if (otherLabel.startsWith('shelf_') ||
+                  otherLabel.startsWith('table_') ||
+                  otherLabel.startsWith('cashier_') ||
+                  otherLabel.startsWith('wall')) {
+                // Physical collision handled automatically by Matter.js
+                // No additional logic needed — bodies push each other naturally
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[MainScene] Matter collision event error:', err)
+        }
+      })
+
+      console.info('[MainScene] Matter.js collision events initialized')
+    } catch (err) {
+      console.error('[MainScene] Failed to setup Matter collision events:', err)
+    }
+  }
+
   private updateEditOverlay(store: any) {
+    if (!this.editOverlay || !this.editText) return
     this.editOverlay.clear()
     if (store.isEditMode) {
       this.editOverlay.lineStyle(15, 0x00ffff, 0.4)
@@ -926,12 +1293,21 @@ export default class MainScene extends Phaser.Scene {
     const wz     = this.environmentManager.warpGateZone
     const doorPos = this.environmentManager.getDoorLocation()
     this.shopToTownGate.setPosition(wz.x, wz.y)
+    
     this.gatePathway.clear()
-    this.gatePathway.fillStyle(0x34495e, 1)
-    const pathW = 60
-    this.gatePathway.fillRect(doorPos.x - pathW / 2, doorPos.y, pathW, wz.y - doorPos.y + 20)
-    this.gatePathway.fillRect(doorPos.x, doorPos.y + 80, wz.x - doorPos.x + 20, 30)
+    
+    if (AppConfig.ISOMETRIC.ENABLED) {
+        // In isometric, just draw a simple indicator or skip the rectilinear pathway
+        this.gatePathway.lineStyle(4, 0x34495e, 0.6)
+        this.gatePathway.lineBetween(doorPos.x, doorPos.y, wz.x, wz.y)
+    } else {
+        this.gatePathway.fillStyle(0x34495e, 1)
+        const pathW = 60
+        this.gatePathway.fillRect(doorPos.x - pathW / 2, doorPos.y, pathW, wz.y - doorPos.y + 20)
+        this.gatePathway.fillRect(doorPos.x, doorPos.y + 80, wz.x - doorPos.x + 20, 30)
+    }
   }
+
 
   public refreshAStarGrid() {
     if (!this.furnitureManager || !this.environmentManager) return
@@ -981,6 +1357,7 @@ export default class MainScene extends Phaser.Scene {
   }
 
   private updateGateHints() {
+    if (!this.environmentManager || !this.gateHintText) return
     if (this.isTeleporting) { this.gateHintText.setVisible(false); return }
     const wz          = this.environmentManager.warpGateZone
     const RADIUS      = GAME_BALANCE.MAP.TRANSITION_DIST_THRESHOLD
@@ -993,7 +1370,7 @@ export default class MainScene extends Phaser.Scene {
   private runDiagnostics() {
     const store = useGameStore()
     console.log('=== DIAGNOSTIC ===')
-    console.log('NPC Count:', this.npcManager.getNPCCount())
+    console.log('NPC Count:', this.npcManager ? this.npcManager.getNPCCount() : 'N/A')
     console.log('Placed Tables:', Object.keys(store.placedTables).length)
     console.log('Expansion Level:', store.expansionLevel)
     console.log('Player State:', this.playerFSM.isMoving ? 'WALK' : 'IDLE', '|', this.playerFSM.currentFacing)

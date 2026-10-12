@@ -3,6 +3,8 @@ import { DEPTH } from '../config'
 import { TEX } from '../assetKeys'
 import { BASE_SHOP_WIDTH, BASE_SHOP_HEIGHT, getExpansionDimensions } from '../../stats/config'
 import { useGameStore } from '../../shop-ui/store/gameStore'
+import { AppConfig } from '../../../game/config/AppConfig'
+// import { createStaticWallBody } from '../physics/PhysicsUtils'
 
 /**
  * EnvironmentManager — Quản lý toàn bộ môi trường Shop trong Phaser 3.
@@ -47,6 +49,8 @@ export class EnvironmentManager {
   public idleStaffZone!: { x: number; y: number; width: number }
 
   public wallsGroup!: Phaser.Physics.Arcade.StaticGroup
+  /** Matter.js wall bodies (only used in isometric mode) */
+  public matterWallBodies: MatterJS.BodyType[] = []
 
   public static readonly START_X = 1000
   public static readonly START_Y = 1000
@@ -56,7 +60,27 @@ export class EnvironmentManager {
 
   constructor(scene: MainScene) {
     this.scene = scene
-    this.wallsGroup = this.scene.physics.add.staticGroup()
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      // Matter mode: create a dummy Arcade group for backward compatibility
+      // (some code paths reference wallsGroup even in ISO mode)
+      try {
+        if (this.scene.physics && (this.scene.physics as any).add) {
+          this.wallsGroup = this.scene.physics.add.staticGroup()
+        } else {
+          this.wallsGroup = this.scene.add.group() as any
+        }
+      } catch (_e) {
+        console.warn('[EnvironmentManager] Arcade groups unavailable in Matter mode, using standard group as fallback')
+        this.wallsGroup = this.scene.add.group() as any
+      }
+    } else {
+      this.wallsGroup = this.scene.physics.add.staticGroup()
+    }
+    
+    // Final safety: ensure wallsGroup is NEVER undefined
+    if (!this.wallsGroup) {
+      this.wallsGroup = this.scene.add.group() as any
+    }
     this.outsideGraphics = this.scene.add.graphics().setDepth(DEPTH.OUTSIDE)
     this.sidewalkGraphics = this.scene.add.graphics().setDepth(DEPTH.FLOOR + 0.5)
     this._createPhysicsWalls()
@@ -84,10 +108,17 @@ export class EnvironmentManager {
       this.shopBounds   = { x: sx, y: sy, w: shopW, h: shopH }
       this.doorLocation = { x: sx + shopW / 2, y: sy + shopH }
 
-      this._drawOutside(sx, sy, shopW, shopH)
-      this._drawFloor(sx, sy, shopW, shopH)
-      this._drawWalls(sx, sy, shopW, shopH)
-      this._drawSidewalk()
+      if (AppConfig.ISOMETRIC.ENABLED) {
+        // Isometric mode: disable oblique background graphics.
+        this._drawIsometricIndicators()
+      } else {
+
+        this._drawOutside(sx, sy, shopW, shopH)
+        this._drawFloor(sx, sy, shopW, shopH)
+        this._drawWalls(sx, sy, shopW, shopH)
+        this._drawSidewalk()
+      }
+      
       this._updatePhysicsWalls()
       this._computeExteriorZones()
       this._drawExpansionPreview(store, sx, sy)
@@ -114,6 +145,18 @@ export class EnvironmentManager {
     this.wallFrontSprites = []
     ;[this.wallTop, this.wallLeft, this.wallRight,
       this.wallBottomLeft, this.wallBottomRight].forEach(r => r?.destroy())
+    
+    // Cleanup Matter wall bodies
+    if (this.matterWallBodies.length > 0) {
+      try {
+        this.matterWallBodies.forEach(body => {
+          try {
+            this.scene.matter.world.remove(body)
+          } catch (_e) { /* ignore */ }
+        })
+      } catch (_e) { /* ignore */ }
+      this.matterWallBodies = []
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -254,6 +297,32 @@ export class EnvironmentManager {
     }
   }
 
+  private _drawIsometricIndicators() {
+    this.sidewalkGraphics.clear()
+    const iz = this.idleStaffZone
+    if (iz) {
+      // Draw a diamond/diamond shape for the rest zone in isometric
+      this.sidewalkGraphics.fillStyle(0x27ae60, 0.3)
+      const HW = iz.width / 2
+      const HH = iz.width / 4 // 2:1 ratio
+      const points = [
+        { x: iz.x, y: iz.y - HH },
+        { x: iz.x + HW, y: iz.y },
+        { x: iz.x, y: iz.y + HH },
+        { x: iz.x - HW, y: iz.y }
+      ]
+      this.sidewalkGraphics.fillPoints(points, true)
+    }
+    
+    // Warp gate area marker
+    const wz = this.warpGateZone
+    if (wz) {
+      this.sidewalkGraphics.lineStyle(2, 0xf6e05e, 0.5)
+      this.sidewalkGraphics.strokeCircle(wz.x, wz.y, 40)
+    }
+  }
+
+
   private _drawExpansionPreview(store: any, sx: number, sy: number) {
     if (!this.scene.previewGraphics) return
     this.scene.previewGraphics.clear()
@@ -280,6 +349,8 @@ export class EnvironmentManager {
   // ─────────────────────────────────────────────────────────────────────────────
 
   private _createPhysicsWalls() {
+    if (AppConfig.ISOMETRIC.ENABLED) return // Rely on MainScene's worldBounds instead
+    
     const DW  = EnvironmentManager.DOOR_WIDTH
     const sx  = EnvironmentManager.START_X
     const sy  = EnvironmentManager.START_Y
@@ -330,6 +401,8 @@ export class EnvironmentManager {
   }
 
   private _updatePhysicsWalls() {
+    if (AppConfig.ISOMETRIC.ENABLED) return
+    
     const { x, y, w, h } = this.shopBounds
     const DW   = EnvironmentManager.DOOR_WIDTH
     const sideW = (w - DW) / 2
@@ -352,10 +425,33 @@ export class EnvironmentManager {
   }
 
   private _computeExteriorZones() {
-    const door = this.doorLocation
-    this.deliveryZone = { x: door.x - 350, y: door.y + 100, width: 200, height: 50 }
-    this.warpGateZone = { x: door.x + 350, y: door.y + 100 }
-    this.idleStaffZone = { x: door.x, y: door.y + 180, width: 120 }
+    if (AppConfig.ISOMETRIC.ENABLED) {
+      const { TILE_WIDTH, TILE_HEIGHT } = AppConfig.ISOMETRIC
+      const { ORIGIN_X, ORIGIN_Y, GRID_WIDTH, GRID_HEIGHT } = AppConfig.ISOMETRIC.MAP
+      
+      const toScreen = (col: number, row: number) => ({
+        x: (col - row) * (TILE_WIDTH / 2) + ORIGIN_X,
+        y: (col + row) * (TILE_HEIGHT / 2) + ORIGIN_Y
+      })
+
+      // Door at center of row = max (bottom-left wall)
+      this.doorLocation = toScreen(Math.floor(GRID_WIDTH / 2), GRID_HEIGHT - 4)
+      
+      // delivery zone near the bottom right of the isometric grid (larger col, larger row)
+      const deliveryCenter = toScreen(GRID_WIDTH - 2, GRID_HEIGHT - 2)
+      this.deliveryZone = { x: deliveryCenter.x, y: deliveryCenter.y, width: 200, height: 50 }
+      
+      const warpCenter = toScreen(8, GRID_HEIGHT - 3)
+      this.warpGateZone = { x: warpCenter.x, y: warpCenter.y }
+      
+      const idleCenter = toScreen(GRID_WIDTH - 10, GRID_HEIGHT - 10)
+      this.idleStaffZone = { x: idleCenter.x, y: idleCenter.y, width: 120 }
+    } else {
+      const door = this.doorLocation
+      this.deliveryZone = { x: door.x - 350, y: door.y + 100, width: 200, height: 50 }
+      this.warpGateZone = { x: door.x + 350, y: door.y + 100 }
+      this.idleStaffZone = { x: door.x, y: door.y + 180, width: 120 }
+    }
   }
 
   private _drawDashedRect(x: number, y: number, w: number, h: number, color: number) {
